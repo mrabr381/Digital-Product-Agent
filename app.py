@@ -192,7 +192,6 @@ def build_pro_planner(title, owner_name, goals, schedule_items, notes):
     meta_style = ParagraphStyle('MetaStyle', fontName='Helvetica', fontSize=8.5, leading=12, textColor=TEXT_MAIN, alignment=2)
     sec_title = ParagraphStyle('SecTitle', fontName='Helvetica-Bold', fontSize=10.5, leading=13, textColor=SECONDARY, spaceBefore=4, spaceAfter=4)
 
-    # Table cell paragraph styles (crucial for zero text overlapping)
     c_bold = ParagraphStyle('CBold', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=PRIMARY)
     c_norm = ParagraphStyle('CNorm', fontName='Helvetica', fontSize=8.5, leading=11, textColor=TEXT_MAIN)
     c_time = ParagraphStyle('CTime', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=SECONDARY, alignment=1)
@@ -280,7 +279,67 @@ def build_pro_planner(title, owner_name, goals, schedule_items, notes):
     return buffer
 
 
-# --- STRICT TEXT-ONLY MODEL FILTER (Excludes Audio/TTS/Embedding Models) ---
+# --- SAFE E-BOOK CHAPTER PARSER (ZERO ATTRIBUTE ERROR) ---
+def parse_ebook_chapters(raw_text: str):
+    chapters = []
+    lines = raw_text.strip().split("\n")
+    current_title = ""
+    current_content = []
+    
+    for line in lines:
+        stripped = line.strip()
+        # Detect Chapter Header
+        if stripped.lower().startswith("### chapter") or stripped.lower().startswith("## chapter") or stripped.lower().startswith("# chapter"):
+            if current_title and current_content:
+                chapters.append((current_title, "\n".join(current_content).strip()))
+                current_content = []
+            
+            clean_title = stripped.lstrip("#").replace("CHAPTER", "").replace("Chapter", "").strip(": -").strip()
+            current_title = clean_title if clean_title else f"Chapter {len(chapters) + 1}"
+        else:
+            if current_title:
+                current_content.append(line)
+                
+    if current_title and current_content:
+        chapters.append((current_title, "\n".join(current_content).strip()))
+        
+    if not chapters:
+        chapters.append(("Core Framework & Action Guide", raw_text.strip()))
+        
+    return chapters
+
+
+# --- SAFE BUNDLE DELIMITER PARSER ---
+def parse_bundle_response(raw_text: str):
+    code_html = ""
+    canva_blueprint = ""
+    sales_copy = ""
+
+    if "=== WEB_APP_START ===" in raw_text and "=== WEB_APP_END ===" in raw_text:
+        part1 = raw_text.split("=== WEB_APP_START ===")
+        code_html = part1.split("=== WEB_APP_END ===")[0].strip()
+    
+    if "=== CANVA_START ===" in raw_text and "=== CANVA_END ===" in raw_text:
+        part2 = raw_text.split("=== CANVA_START ===")
+        canva_blueprint = part2.split("=== CANVA_END ===")[0].strip()
+
+    if "=== SALES_COPY_START ===" in raw_text and "=== SALES_COPY_END ===" in raw_text:
+        part3 = raw_text.split("=== SALES_COPY_START ===")
+        sales_copy = part3.split("=== SALES_COPY_END ===")[0].strip()
+
+    if not code_html:
+        code_html = "<!DOCTYPE html><html><head><title>Productivity Tool</title><style>body{font-family:sans-serif;background:#0f172a;color:white;padding:30px;}</style></head><body><h2>⚡ Interactive Focus Tool</h2><p>Custom tool ready for launch.</p></body></html>"
+    
+    if not canva_blueprint:
+        canva_blueprint = "### 🎨 Canva Marketing Blueprint\n- **Hex Palette:** `#0f172a`, `#4f46e5`, `#06b6d4`, `#f8fafc`\n- **Typography:** Montserrat Bold (Headlines) & Lato Regular (Body)"
+
+    if not sales_copy:
+        sales_copy = "### 🚀 Product Launch Copy\nHigh converting description ready for Gumroad and Etsy."
+
+    return code_html, canva_blueprint, sales_copy
+
+
+# --- STRICT TEXT-ONLY MODEL FILTER ---
 def get_active_models(api_key: str):
     try:
         genai.configure(api_key=api_key)
@@ -304,7 +363,7 @@ def get_active_models(api_key: str):
         return ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
 
 
-# --- ROBUST GEMINI CALL (With Auto-Retry on 429) ---
+# --- ROBUST GEMINI CALL ---
 def generate_with_retry(prompt: str, selected_model: str, all_models: list, max_retries: int = 3):
     models_to_try = [selected_model] + [m for m in all_models if m != selected_model]
     
@@ -439,8 +498,8 @@ with tab_step2:
     st.markdown("### 🛠️ Assets to Build Automatically:")
     col_a1, col_a2 = st.columns(2)
     with col_a1:
-        st.checkbox("📄 1. High-Value Master E-Book (Print-Ready PDF with Cover & Chapters)", value=True, disabled=True)
-        st.checkbox("🗓️ 2. Aesthetic Printable Planner (Structured Time-Blocks & Goals PDF)", value=True, disabled=True)
+        st.checkbox("📄 1. Master E-Book (Print-Ready PDF with Cover & Chapters)", value=True, disabled=True)
+        st.checkbox("🗓️ 2. Printable Daily Planner (Structured Time-Blocks & Goals PDF)", value=True, disabled=True)
     with col_a2:
         st.checkbox("💻 3. Interactive Web App / Calculator (Self-Contained HTML/JS)", value=True, disabled=True)
         st.checkbox("🎨 4. Canva Marketing Blueprints & Direct Canvas Links", value=True, disabled=True)
@@ -466,16 +525,8 @@ with tab_step2:
                 """
                 raw_ebook_text, _ = generate_with_retry(ebook_prompt, model_choice, available_models)
                 
-                # Parse Chapters (Fixed bug here)
-                chapters_list = []
-                for rc in raw_ebook_text.split("### CHAPTER "):
-                    if not rc.strip():
-                        continue
-                    lines = rc.strip().split("\n", 1)
-                    ch_h = "CHAPTER " + lines[0].strip()
-                    ch_b = lines.strip() if len(lines) > 1 else ""
-                    chapters_list.append((ch_h, ch_b))
-                
+                # Parse Chapters safely
+                chapters_list = parse_ebook_chapters(raw_ebook_text)
                 ebook_pdf_bytes = build_pro_ebook(p_title, p_author, p_subtitle, chapters_list)
 
                 # 2. Compile Planner Data
@@ -494,6 +545,9 @@ with tab_step2:
                 ]
                 planner_notes = f"Small daily disciplines compound into massive long-term freedom in {chosen_niche}."
                 planner_pdf_bytes = build_pro_planner(f"{p_title} Planner", p_author, planner_goals, planner_sched, planner_notes)
+
+                # Safe cooldown to protect RPM rate limits
+                time.sleep(2)
 
                 # 3. Master Call 2: Generate Code Tool + Canva + Sales Copy Together
                 bundle_prompt = f"""
@@ -570,21 +624,8 @@ with tab_step2:
                 """
                 raw_bundle_text, _ = generate_with_retry(bundle_prompt, model_choice, available_models)
 
-                # Parse Multi-Asset Outputs
-                code_html = ""
-                canva_blueprint = ""
-                sales_copy = ""
-
-                if "=== WEB_APP_START ===" in raw_bundle_text and "=== WEB_APP_END ===" in raw_bundle_text:
-                    code_html = raw_bundle_text.split("=== WEB_APP_START ===").split("=== WEB_APP_END ===")[0].strip()
-                if "=== CANVA_START ===" in raw_bundle_text and "=== CANVA_END ===" in raw_bundle_text:
-                    canva_blueprint = raw_bundle_text.split("=== CANVA_START ===").split("=== CANVA_END ===")[0].strip()
-                if "=== SALES_COPY_START ===" in raw_bundle_text and "=== SALES_COPY_END ===" in raw_bundle_text:
-                    sales_copy = raw_bundle_text.split("=== SALES_COPY_START ===").split("=== SALES_COPY_END ===")[0].strip()
-
-                # Fallback if delimiter missed
-                if not code_html:
-                    code_html = "<h1>Interactive Tool Ready</h1>"
+                # Parse Multi-Asset Outputs safely
+                code_html, canva_blueprint, sales_copy = parse_bundle_response(raw_bundle_text)
 
                 # Save all to session state
                 st.session_state.bundle_data = {
