@@ -60,17 +60,29 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- GEMINI CLIENT INITIALIZATION ---
-def init_gemini(api_key: str):
+# --- DYNAMIC MODEL FETCHER ---
+def get_active_models(api_key: str):
     try:
         genai.configure(api_key=api_key)
-        return True
-    except Exception as e:
-        st.error(f"API Configuration Error: {e}")
-        return False
+        available = []
+        for m in genai.list_models():
+            if "generateContent" in m.supported_generation_methods:
+                clean_name = m.name.replace("models/", "")
+                if "gemini" in clean_name:
+                    available.append(clean_name)
+        
+        # Sort so that flash/pro come first
+        preferred_order = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro", "gemini-1.5-pro-latest", "gemini-2.0-flash-exp", "gemini-pro"]
+        sorted_models = [m for m in preferred_order if m in available] + [m for m in available if m not in preferred_order]
+        return sorted_models if sorted_models else ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
+    except Exception:
+        return ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
 
-def get_model(model_name="gemini-1.5-pro"):
-    return genai.GenerativeModel(model_name=model_name)
+
+def get_model(model_name: str):
+    # Ensure model name is properly prefixed
+    clean_name = model_name if model_name.startswith("models/") else f"models/{model_name}"
+    return genai.GenerativeModel(model_name=clean_name)
 
 
 # --- PDF GENERATOR UTILITIES ---
@@ -204,9 +216,15 @@ with st.sidebar:
     default_key = st.secrets.get("GEMINI_API_KEY", "")
     api_key = st.text_input("🔑 Gemini API Key", value=default_key, type="password", help="Enter your Gemini API key from Google AI Studio.")
     
+    if api_key:
+        genai.configure(api_key=api_key)
+        available_models = get_active_models(api_key)
+    else:
+        available_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
+        
     st.markdown("---")
     st.markdown("### ⚙️ Engine Parameters")
-    model_choice = st.selectbox("LLM Core", ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash-exp"])
+    model_choice = st.selectbox("LLM Core (Active on your key)", available_models)
     
     st.markdown("---")
     st.markdown("### 💡 Quick Capabilities")
@@ -238,8 +256,6 @@ if not api_key:
     st.info("Aap free API key Google AI Studio (aistudio.google.com) se le sakte hain.")
     st.stop()
 
-init_gemini(api_key)
-
 
 # --- MAIN STUDIO TABS ---
 tab_research, tab_ebook, tab_planner, tab_canva, tab_code, tab_pdf_reader = st.tabs([
@@ -269,7 +285,7 @@ with tab_research:
         if not research_query:
             st.warning("Query likhna zaroori hai.")
         else:
-            with st.spinner("Market analysis generate ho raha hai..."):
+            with st.spinner(f"Analysis generating with {model_choice}..."):
                 try:
                     model = get_model(model_choice)
                     prompt = f"""
@@ -289,6 +305,7 @@ with tab_research:
                     st.markdown(response.text)
                 except Exception as e:
                     st.error(f"Error during analysis: {e}")
+                    st.info("💡 Agar error aaye to Sidebar se doosra model (jaise gemini-1.5-flash ya gemini-1.5-flash-latest) select kar ke check karein.")
 
 
 # ==========================================
@@ -373,7 +390,6 @@ with tab_planner:
     if st.button("🛠️ Build & Download Planner PDF", key="btn_planner"):
         with st.spinner("AI structured planner construct kar raha hai..."):
             try:
-                model = get_model(model_choice)
                 goals = ["Complete key daily priority task", "Deep work focus session (2 hours)", "Physical exercise & wellness routine"]
                 schedule = [
                     ("08:00 - 10:00 AM", "Deep Focus & High-Value Output"),
