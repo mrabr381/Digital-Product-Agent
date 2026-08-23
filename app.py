@@ -3,22 +3,23 @@ import google.generativeai as genai
 import io
 import time
 import re
-import os
-from pypdf import PdfReader
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable
+)
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.pdfgen import canvas
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="OmniCraft AI | Digital Product Studio",
+    page_title="OmniCraft AI | Complete Digital Product Studio",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- MODERN CUSTOM CSS ---
+# --- MODERN STYLING ---
 st.markdown("""
 <style>
     .stApp {
@@ -26,38 +27,257 @@ st.markdown("""
         color: #f0f2f6;
     }
     .custom-card {
-        background: linear-gradient(145deg, #1a1f2c, #131722);
-        border: 1px solid #2d3748;
+        background: linear-gradient(145deg, #1e2433, #131722);
+        border: 1px solid #334155;
         border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 16px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        padding: 22px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.25);
     }
     .badge {
         background: #4f46e5;
-        color: #fff;
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-size: 0.8rem;
-        font-weight: bold;
+        color: #ffffff;
+        padding: 4px 12px;
+        border-radius: 14px;
+        font-size: 0.82rem;
+        font-weight: 700;
         display: inline-block;
-        margin-bottom: 8px;
+        margin-bottom: 10px;
     }
     .stButton>button {
         background: linear-gradient(90deg, #6366f1, #4f46e5);
         color: white;
         border: none;
         border-radius: 8px;
-        padding: 10px 24px;
-        font-weight: 600;
+        padding: 12px 28px;
+        font-weight: 700;
+        font-size: 1rem;
         transition: all 0.3s ease;
     }
     .stButton>button:hover {
         background: linear-gradient(90deg, #4f46e5, #4338ca);
-        box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+        box-shadow: 0 6px 18px rgba(99, 102, 241, 0.45);
     }
 </style>
 """, unsafe_allow_html=True)
+
+
+# --- REPORTLAB CANVAS WITH AUTOMATIC PAGE NUMBERING ---
+class NumberedCanvas(canvas.Canvas):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._saved_page_states = []
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        num_pages = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self.draw_page_decorations(num_pages)
+            canvas.Canvas.showPage(self)
+        canvas.Canvas.save(self)
+
+    def draw_page_decorations(self, page_count):
+        self.saveState()
+        if self._pageNumber > 1: # Suppress on Cover Page
+            self.setFont("Helvetica", 8)
+            self.setFillColor(colors.HexColor("#64748b"))
+            self.drawString(40, letter - 30, "OFFICIAL DIGITAL PRODUCT SUITE")
+            self.setStrokeColor(colors.HexColor("#cbd5e1"))
+            self.setLineWidth(0.5)
+            self.line(40, letter - 35, letter[0] - 40, letter - 35)
+
+            # Footer
+            self.drawRightString(letter[0] - 40, 25, f"Page {self._pageNumber} of {page_count}")
+            self.drawString(40, 25, "Confidential & Exclusive Content | All Rights Reserved")
+            self.line(40, 36, letter[0] - 40, 36)
+        self.restoreState()
+
+
+# --- SANITIZE STRINGS FOR REPORTLAB ---
+def sanitize_text(text: str) -> str:
+    if not text:
+        return ""
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+# --- PREMIUM E-BOOK PDF ENGINE ---
+def build_pro_ebook(title, author, subtitle, chapters):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=letter,
+        rightMargin=45, leftMargin=45, topMargin=50, bottomMargin=50
+    )
+    styles = getSampleStyleSheet()
+
+    PRIMARY = colors.HexColor("#0f172a")
+    SECONDARY = colors.HexColor("#4f46e5")
+    LIGHT_ACCENT = colors.HexColor("#e0e7ff")
+    TEXT_DARK = colors.HexColor("#1e293b")
+    TEXT_MUTED = colors.HexColor("#64748b")
+
+    cover_title = ParagraphStyle('CoverTitle', fontName='Helvetica-Bold', fontSize=26, leading=32, textColor=PRIMARY, alignment=1, spaceAfter=12)
+    cover_sub = ParagraphStyle('CoverSub', fontName='Helvetica', fontSize=13, leading=17, textColor=SECONDARY, alignment=1, spaceAfter=20)
+    cover_auth = ParagraphStyle('CoverAuth', fontName='Helvetica-Bold', fontSize=11, leading=15, textColor=TEXT_MUTED, alignment=1)
+    
+    chap_badge = ParagraphStyle('ChapBadge', fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=SECONDARY, spaceBefore=8, spaceAfter=4)
+    chap_title = ParagraphStyle('ChapTitle', fontName='Helvetica-Bold', fontSize=17, leading=21, textColor=PRIMARY, spaceAfter=10)
+    body_style = ParagraphStyle('EbookBody', fontName='Helvetica', fontSize=10, leading=15, textColor=TEXT_DARK, spaceAfter=8)
+    callout_style = ParagraphStyle('Callout', fontName='Helvetica-Oblique', fontSize=9.5, leading=14, textColor=colors.HexColor("#312e81"))
+
+    story = []
+
+    # Cover Page
+    story.append(Spacer(1, 90))
+    story.append(Paragraph(sanitize_text(title.upper()), cover_title))
+    story.append(HRFlowable(width="60%", thickness=2, color=SECONDARY, spaceBefore=8, spaceAfter=12))
+    story.append(Paragraph(sanitize_text(subtitle), cover_sub))
+    story.append(Spacer(1, 160))
+    story.append(Paragraph(f"Created by: <b>{sanitize_text(author)}</b>", cover_auth))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph("A Masterclass Publication & Practical Framework", ParagraphStyle('SubSub', fontName='Helvetica', fontSize=8.5, leading=11, textColor=TEXT_MUTED, alignment=1)))
+    story.append(PageBreak())
+
+    # Chapters
+    for idx, (ch_title, ch_content) in enumerate(chapters, 1):
+        story.append(Paragraph(f"SECTION 0{idx} // STRATEGY", chap_badge))
+        story.append(Paragraph(sanitize_text(ch_title), chap_title))
+        story.append(HRFlowable(width="100%", thickness=1, color=LIGHT_ACCENT, spaceBefore=4, spaceAfter=12))
+
+        paras = [p.strip() for p in ch_content.split("\n\n") if p.strip()]
+        for p in paras:
+            if p.startswith(">") or "Key Takeaway:" in p or "Pro Tip:" in p:
+                clean_c = sanitize_text(p.replace(">", "").strip())
+                t_call = Table([[Paragraph(clean_c, callout_style)]], colWidths=[520])
+                t_call.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,-1), LIGHT_ACCENT),
+                    ('LEFTPADDING', (0,0), (-1,-1), 12),
+                    ('RIGHTPADDING', (0,0), (-1,-1), 12),
+                    ('TOPPADDING', (0,0), (-1,-1), 8),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+                    ('LINELEFT', (0,0), (0,0), 3, SECONDARY),
+                ]))
+                story.append(t_call)
+                story.append(Spacer(1, 8))
+            else:
+                story.append(Paragraph(sanitize_text(p), body_style))
+
+        if idx < len(chapters):
+            story.append(PageBreak())
+
+    doc.build(story, canvasmaker=NumberedCanvas)
+    buffer.seek(0)
+    return buffer
+
+
+# --- PREMIUM PLANNER PDF ENGINE (Zero Overlap & Clean Grid) ---
+def build_pro_planner(title, owner_name, goals, schedule_items, notes):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=letter,
+        rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=40
+    )
+    styles = getSampleStyleSheet()
+
+    PRIMARY = colors.HexColor("#1e1b4b")
+    SECONDARY = colors.HexColor("#4f46e5")
+    BORDER_COLOR = colors.HexColor("#cbd5e1")
+    TEXT_MAIN = colors.HexColor("#0f172a")
+    TEXT_MUTED = colors.HexColor("#64748b")
+
+    header_style = ParagraphStyle('PlannerTitle', fontName='Helvetica-Bold', fontSize=18, leading=22, textColor=PRIMARY)
+    meta_style = ParagraphStyle('MetaStyle', fontName='Helvetica', fontSize=8.5, leading=12, textColor=TEXT_MAIN, alignment=2)
+    sec_title = ParagraphStyle('SecTitle', fontName='Helvetica-Bold', fontSize=10.5, leading=13, textColor=SECONDARY, spaceBefore=4, spaceAfter=4)
+
+    # Table cell paragraph styles (crucial for zero text overlapping)
+    c_bold = ParagraphStyle('CBold', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=PRIMARY)
+    c_norm = ParagraphStyle('CNorm', fontName='Helvetica', fontSize=8.5, leading=11, textColor=TEXT_MAIN)
+    c_time = ParagraphStyle('CTime', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=SECONDARY, alignment=1)
+    c_done = ParagraphStyle('CDone', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=TEXT_MUTED, alignment=1)
+
+    story = []
+
+    # Header Row
+    top_table = Table([
+        [
+            Paragraph(sanitize_text(title.upper()), header_style),
+            Paragraph(f"<b>Owner:</b> {sanitize_text(owner_name)}<br/><b>Date:</b> ______________", meta_style)
+        ]
+    ], colWidths=[370, 170])
+    top_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+    ]))
+    story.append(top_table)
+    story.append(Spacer(1, 6))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=SECONDARY, spaceBefore=2, spaceAfter=8))
+
+    # Priority Outcomes Table
+    goals_data = [
+        [Paragraph("TOP 3 DAILY CORE PRIORITIES", c_bold), Paragraph("TARGET TIME", c_bold), Paragraph("DONE", c_bold)]
+    ]
+    for i, g in enumerate(goals[:3], 1):
+        target_t = "09:00 AM" if i==1 else ("01:30 PM" if i==2 else "04:30 PM")
+        goals_data.append([
+            Paragraph(f"<b>{i}.</b> {sanitize_text(g)}", c_norm),
+            Paragraph(target_t, c_norm),
+            Paragraph("[  ]", c_done)
+        ])
+    
+    t_goals = Table(goals_data, colWidths=[370, 110, 60])
+    t_goals.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#e0e7ff")),
+        ('GRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(t_goals)
+    story.append(Spacer(1, 10))
+
+    # Hourly Execution Blocks Table
+    story.append(Paragraph("HOURLY EXECUTION BLOCKS", sec_title))
+    sched_data = [
+        [Paragraph("TIME BLOCK", c_bold), Paragraph("ACTIONABLE FOCUS TASK", c_bold), Paragraph("STATUS / NOTES", c_bold)]
+    ]
+    for time_slot, task_desc in schedule_items:
+        sched_data.append([
+            Paragraph(sanitize_text(time_slot), c_time),
+            Paragraph(sanitize_text(task_desc), c_norm),
+            Paragraph("High Focus", c_norm)
+        ])
+    
+    t_sched = Table(sched_data, colWidths=[120, 310, 110])
+    t_sched.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#f1f5f9")),
+        ('GRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(t_sched)
+    story.append(Spacer(1, 10))
+
+    # Daily Reflection Box
+    notes_data = [
+        [Paragraph("DAILY REFLECTION & WIN OF THE DAY", c_bold)],
+        [Paragraph(f"<i>{sanitize_text(notes if notes else 'Focus on what moves the needle today. Small consistent actions compound.')}</i><br/><br/>", c_norm)]
+    ]
+    t_notes = Table(notes_data, colWidths=[540])
+    t_notes.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#f8fafc")),
+        ('GRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(t_notes)
+
+    doc.build(story, canvasmaker=NumberedCanvas)
+    buffer.seek(0)
+    return buffer
 
 
 # --- DYNAMIC MODEL FETCHER ---
@@ -78,7 +298,7 @@ def get_active_models(api_key: str):
         return ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
 
 
-# --- ROBUST GEMINI CALL WRAPPER (Auto-Retry on 429 Rate Limit) ---
+# --- ROBUST GEMINI CALL (With Auto-Retry on 429) ---
 def generate_with_retry(prompt: str, selected_model: str, all_models: list, max_retries: int = 3):
     models_to_try = [selected_model] + [m for m in all_models if m != selected_model]
     
@@ -93,133 +313,21 @@ def generate_with_retry(prompt: str, selected_model: str, all_models: list, max_
             except Exception as e:
                 err_str = str(e)
                 if "429" in err_str or "Quota" in err_str or "ResourceExhausted" in err_str:
-                    # Extract wait seconds from error message if available
                     match = re.search(r'retry in ([0-9\.]+)s', err_str, re.IGNORECASE)
-                    wait_sec = float(match.group(1)) + 0.5 if match else 6.0
-                    wait_sec = min(wait_sec, 10.0)
-                    
-                    st.warning(f"⏳ Rate Limit hit on **{current_model}**. Auto-retrying in {int(wait_sec)}s... (Attempt {attempt+1}/{max_retries})")
+                    wait_sec = float(match.group(1)) + 0.5 if match else 5.0
+                    wait_sec = min(wait_sec, 8.0)
+                    st.info(f"⏳ Rate limit handled. Auto-retrying with `{current_model}` in {int(wait_sec)}s...")
                     time.sleep(wait_sec)
                 else:
-                    # If other non-retryable error, jump to next model
                     break
-    
-    raise Exception("Tamam models par quota/rate-limit exceed ho chuka hai. Baraye mehrbani kuch seconds baad dobara try karein.")
+    raise Exception("Rate limit reached. Please wait a few moments and try again.")
 
 
-# --- PDF SANITIZER FOR REPORTLAB ---
-def sanitize_text(text: str) -> str:
-    if not text:
-        return ""
-    # ReportLab uses basic XML tags, so raw ampersands/brackets need escaping
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-# --- PDF GENERATOR UTILITIES ---
-def create_ebook_pdf(title, author, content_sections):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=54, leftMargin=54, topMargin=54, bottomMargin=54)
-    styles = getSampleStyleSheet()
-
-    title_style = ParagraphStyle(
-        'DocTitle', parent=styles['Heading1'], fontName='Helvetica-Bold',
-        fontSize=24, leading=28, textColor=colors.HexColor("#1e293b"), spaceAfter=15, alignment=1
-    )
-    author_style = ParagraphStyle(
-        'AuthorStyle', parent=styles['Normal'], fontName='Helvetica-Oblique',
-        fontSize=12, leading=15, textColor=colors.HexColor("#64748b"), spaceAfter=30, alignment=1
-    )
-    h1_style = ParagraphStyle(
-        'SectionHeading', parent=styles['Heading2'], fontName='Helvetica-Bold',
-        fontSize=16, leading=20, textColor=colors.HexColor("#4338ca"), spaceBefore=18, spaceAfter=10
-    )
-    body_style = ParagraphStyle(
-        'BodyDark', parent=styles['Normal'], fontName='Helvetica',
-        fontSize=10.5, leading=15, textColor=colors.HexColor("#334155"), spaceAfter=10
-    )
-
-    story = [
-        Spacer(1, 40),
-        Paragraph(sanitize_text(title), title_style),
-        Paragraph(f"Created by: {sanitize_text(author)}", author_style),
-        Spacer(1, 20)
-    ]
-
-    for heading, text in content_sections:
-        story.append(Paragraph(sanitize_text(heading), h1_style))
-        for p in text.split("\n\n"):
-            clean_p = sanitize_text(p.strip().replace("\n", " "))
-            if clean_p:
-                story.append(Paragraph(clean_p, body_style))
-        story.append(Spacer(1, 10))
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
-
-
-def create_planner_pdf(title, user_name, goals, schedule_items, notes):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
-    styles = getSampleStyleSheet()
-
-    header_style = ParagraphStyle(
-        'PlannerHeader', fontName='Helvetica-Bold', fontSize=20, leading=24,
-        textColor=colors.HexColor("#312e81"), alignment=1, spaceAfter=15
-    )
-
-    story = [
-        Paragraph(f"📋 {sanitize_text(title)}", header_style),
-        Paragraph(f"<b>Planner Owner:</b> {sanitize_text(user_name)}", styles['Normal']),
-        Spacer(1, 15)
-    ]
-
-    # Goals Table
-    goals_data = [["No.", "Top Priority Daily Goals", "Status"]]
-    for i, g in enumerate(goals, 1):
-        goals_data.append([str(i), sanitize_text(g), "[  ] Done"])
-    
-    t_goals = Table(goals_data, colWidths=[35, 380, 80])
-    t_goals.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#e0e7ff")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor("#3730a3")),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0,0), (-1,0), 6),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
-    ]))
-    story.append(t_goals)
-    story.append(Spacer(1, 20))
-
-    # Time Schedule Table
-    sched_data = [["Time", "Scheduled Task / Activity", "Notes"]]
-    for time_slot, task_desc in schedule_items:
-        sched_data.append([sanitize_text(time_slot), sanitize_text(task_desc), ""])
-    
-    t_sched = Table(sched_data, colWidths=[70, 315, 110])
-    t_sched.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#ede9fe")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor("#5b21b6")),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
-    ]))
-    story.append(t_sched)
-    story.append(Spacer(1, 15))
-
-    story.append(Paragraph("<b>Daily Reflections & Notes:</b>", styles['Normal']))
-    story.append(Spacer(1, 5))
-    story.append(Paragraph(sanitize_text(notes if notes else "Focus on consistent daily execution."), styles['Normal']))
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
-
-
-# --- SIDEBAR CONFIGURATION ---
+# --- SIDEBAR SETTINGS ---
 with st.sidebar:
-    st.markdown("## ⚡ Studio Settings")
-    
+    st.markdown("## ⚡ Studio Control Panel")
     default_key = st.secrets.get("GEMINI_API_KEY", "")
-    api_key = st.text_input("🔑 Gemini API Key", value=default_key, type="password", help="Enter your Gemini API key from Google AI Studio.")
+    api_key = st.text_input("🔑 Gemini API Key", value=default_key, type="password")
     
     if api_key:
         genai.configure(api_key=api_key)
@@ -228,320 +336,279 @@ with st.sidebar:
         available_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
         
     st.markdown("---")
-    st.markdown("### ⚙️ Engine Parameters")
-    model_choice = st.selectbox("LLM Core (Active on your key)", available_models)
-    
-    st.markdown("---")
-    st.markdown("### 💡 Quick Capabilities")
-    st.markdown("""
-    - 🔍 **Market Research & Niche Trends**
-    - 📖 **E-Book & Guide PDF Generation**
-    - 🗓️ **Printable Planners & Trackers**
-    - 🎨 **Canva Blueprint & Prompt Studio**
-    - 💻 **Bug-Free Micro-Tool / Code Builder**
-    - 📄 **PDF Extraction & Remastering**
-    """)
+    model_choice = st.selectbox("Active AI Core", available_models, index=0)
+    st.caption("💡 `gemini-1.5-flash` is fast & has highest request limits.")
 
 
-# --- TOP BANNER / HEADER ---
+# --- TOP BANNER ---
 st.markdown("""
 <div class="custom-card">
-    <span class="badge">PRO AI DIGITAL PRODUCT AGENT</span>
-    <h2>⚡ OmniCraft Studio — Build, Code, Design & Publish</h2>
+    <span class="badge">END-TO-END PIPELINE</span>
+    <h2>⚡ OmniCraft Studio — Full Digital Product Builder</h2>
     <p style="color: #94a3b8; margin-bottom: 0;">
-        Create end-to-end digital assets (PDFs, Planners, Canva Layouts, Web Tools, and Software Scripts) powered by Gemini Pro.
+        Research any niche, select a winning angle, and automatically generate a complete <b>Ready-to-Sell Product Bundle</b> (PDFs, Planners, Web Tools, Canva Assets & Sales Copy).
     </p>
 </div>
 """, unsafe_allow_html=True)
 
-
-# --- CHECK FOR API KEY ---
 if not api_key:
     st.warning("⚠️ Baraye mehrbani Sidebar mein apni **Gemini API Key** enter karein.")
-    st.info("Aap free API key Google AI Studio (aistudio.google.com) se le sakte hain.")
     st.stop()
 
 
-# --- MAIN STUDIO TABS ---
-tab_research, tab_ebook, tab_planner, tab_canva, tab_code, tab_pdf_reader = st.tabs([
-    "🔍 1. Market Research",
-    "📖 2. E-Book Studio",
-    "🗓️ 3. Planner & Workbook",
-    "🎨 4. Canva Blueprint",
-    "💻 5. Code & Micro-Tools",
-    "📄 6. PDF Analyzer"
+# --- SESSION STATE MANAGEMENT ---
+if "research_results" not in st.session_state:
+    st.session_state.research_results = None
+if "selected_niche" not in st.session_state:
+    st.session_state.selected_niche = ""
+if "bundle_data" not in st.session_state:
+    st.session_state.bundle_data = None
+
+
+# --- WORKFLOW TABS ---
+tab_step1, tab_step2, tab_step3 = st.tabs([
+    "🔍 Step 1: Market Research",
+    "🎯 Step 2: Choose Niche & Configure",
+    "📦 Step 3: Complete Product Suite & Downloads"
 ])
 
 
-# ==========================================
-# TAB 1: MARKET RESEARCH
-# ==========================================
-with tab_research:
-    st.subheader("🔍 Digital Product Trend & Market Research")
-    st.caption("Search trends, competitor price points, and bestselling digital product ideas.")
+# =======================================================
+# STEP 1: MARKET RESEARCH & OPPORTUNITY DISCOVERY
+# =======================================================
+with tab_step1:
+    st.subheader("🔍 Step 1: Market Intelligence & Niche Discovery")
+    st.caption("Enter a broad topic. AI will identify 3 highly profitable sub-niches with monetization potential.")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        research_query = st.text_input("Enter Niche or Product Idea", placeholder="e.g. printable planners, Notion financial trackers, burnout guides")
-    with col2:
-        platform = st.selectbox("Target Marketplace", ["Gumroad", "Etsy", "Amazon KDP", "ProductHunt", "Direct Website"])
-        
-    if st.button("🚀 Analyze Market & Opportunities", key="btn_research"):
-        if not research_query:
-            st.warning("Query likhna zaroori hai.")
-        else:
-            with st.spinner(f"Analyzing with {model_choice}..."):
-                try:
-                    prompt = f"""
-                    You are an expert digital product strategist, market analyst, and ecommerce advisor.
-                    Conduct a comprehensive, actionable market opportunity analysis for: '{research_query}' to sell on '{platform}'.
-                    
-                    Structure your response with clear headings:
-                    1. 🎯 Target Audience & Core Pain Points
-                    2. 💡 Top 3 High-Converting Digital Product Formats (PDF guide, printable planner, Notion template, or code tool)
-                    3. 💰 Pricing Strategy & Value Ladders (e.g. $9 starter vs $27 bundle)
-                    4. 🚀 Unique Selling Proposition (USP) & Marketing Angles
-                    5. 📋 Step-by-Step Launch Blueprint for {platform}
-                    
-                    Provide concrete, practical, and highly specific ideas without generic fluff.
-                    """
-                    response_text, used_model = generate_with_retry(prompt, model_choice, available_models)
-                    st.markdown(response_text)
-                    st.caption(f"⚡ Generated using: `{used_model}`")
-                except Exception as e:
-                    st.error(f"Error: {e}")
+    col_s1, col_s2 = st.columns()
+    with col_s1:
+        broad_topic = st.text_input("Enter Broad Niche / Target Audience", "Productivity & Deep Work for Remote Founders & Freelancers")
+    with col_s2:
+        platform_choice = st.selectbox("Primary Marketplace", ["Gumroad", "Etsy", "Amazon KDP", "Direct Web Store"])
 
-
-# ==========================================
-# TAB 2: E-BOOK & GUIDE PDF GENERATOR
-# ==========================================
-with tab_ebook:
-    st.subheader("📖 Full E-Book & Guide Generator")
-    st.caption("Generate complete chapters with structured content and download ready-to-sell PDFs directly.")
-    
-    col_eb1, col_eb2 = st.columns(2)
-    with col_eb1:
-        eb_title = st.text_input("E-Book Title", "Unstoppable Focus: The High Performer's Blueprint")
-        eb_author = st.text_input("Author Name / Brand", "OmniCraft Publishing")
-    with col_eb2:
-        eb_topic = st.text_area("Core Topic & Key Takeaways", "Techniques for deep work, eliminating digital distraction, time boxing, and daily energy management.")
-        num_chapters = st.slider("Number of Chapters", 2, 5, 3)
-        
-    if st.button("✨ Draft & Generate Full E-Book", key="btn_ebook"):
-        with st.spinner("AI content draft kar raha hai..."):
+    if st.button("🚀 Analyze & Discover Winning Sub-Niches", key="btn_run_research"):
+        with st.spinner("AI market trends aur monetization opportunities calculate kar raha hai..."):
             try:
                 prompt = f"""
-                You are a professional author and non-fiction ghostwriter.
-                Write a high-quality, actionable, structured {num_chapters}-chapter e-book titled '{eb_title}' by '{eb_author}'.
-                Topic Details: {eb_topic}
+                You are a world-class digital product strategist and market researcher.
+                Analyze the market for: '{broad_topic}' targeted on '{platform_choice}'.
                 
-                FORMAT YOUR OUTPUT EXACTLY LIKE THIS:
-                ### CHAPTER 1: [Chapter Title]
-                [Chapter Content with detailed paragraphs, actionable steps, and insights]
+                Identify EXACTLY 3 highly profitable SUB-NICHES. For each sub-niche, provide:
+                - Sub-Niche Name
+                - Core Target Customer & Burning Pain Point
+                - Proposed E-Book / Guide Title
+                - Proposed Printable Planner / Tracker Concept
+                - Proposed Interactive Code / Calculator Web App Concept
+                - Suggested Pricing ($9 - $49)
                 
-                ### CHAPTER 2: [Chapter Title]
-                [Chapter Content]
-                
-                (Continue for all {num_chapters} chapters without placeholders. Make the text high value and complete.)
+                Format with clear markdown headings and bullet points so the user can easily choose one.
                 """
-                raw_text, used_model = generate_with_retry(prompt, model_choice, available_models)
+                research_text, used_m = generate_with_retry(prompt, model_choice, available_models)
+                st.session_state.research_results = research_text
+                st.success(f"Market Research Complete! (Engine: `{used_m}`)")
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    if st.session_state.research_results:
+        st.markdown(st.session_state.research_results)
+        st.info("👉 Ab **Step 2: Choose Niche & Configure** tab par jayein aur apna product bundle configure karein.")
+
+
+# =======================================================
+# STEP 2: CHOOSE NICHE & CONFIGURE LAUNCH SUITE
+# =======================================================
+with tab_step2:
+    st.subheader("🎯 Step 2: Select Sub-Niche & Product Details")
+    st.caption("Specify your exact product name and brand details based on the research above.")
+    
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        chosen_niche = st.text_input("Selected Sub-Niche / Core Angle", "Burnout Recovery & Deep Work Mastery for Freelancers")
+        p_title = st.text_input("Digital Product Main Title", "UNSTOPPABLE FOCUS: The Freelancer's Deep Work Blueprint")
+        p_subtitle = st.text_input("Subtitle / Hook", "Eliminate Digital Distractions, Build Consistent Daily Output & Double Revenue")
+    with col_c2:
+        p_author = st.text_input("Brand / Author Name", "OmniCraft Publishing")
+        p_price = st.text_input("Target Selling Price", "$19 - $29")
+        num_chapters = st.slider("E-Book Chapter Count", 2, 5, 3)
+
+    st.markdown("---")
+    st.markdown("### 🛠️ Assets to Build Automatically:")
+    col_a1, col_a2 = st.columns(2)
+    with col_a1:
+        st.checkbox("📄 1. High-Value Master E-Book (Print-Ready PDF with Cover & Chapters)", value=True, disabled=True)
+        st.checkbox("🗓️ 2. Aesthetic Printable Planner (Structured Time-Blocks & Goals PDF)", value=True, disabled=True)
+    with col_a2:
+        st.checkbox("💻 3. Interactive Web App / Calculator (Self-Contained HTML/JS)", value=True, disabled=True)
+        st.checkbox("🎨 4. Canva Marketing Blueprints & Direct Canvas Links", value=True, disabled=True)
+        st.checkbox("📝 5. Gumroad/Etsy High-Converting Sales Listing Copy", value=True, disabled=True)
+
+    if st.button("⚡ Generate Complete Digital Product Suite (1-Click Launch Kit)", key="btn_build_all"):
+        with st.spinner("🚀 AI poori Digital Product Suite build kar raha hai (Writing, Designing & Compiling PDFs)..."):
+            try:
+                # 1. Generate E-Book Content
+                ebook_prompt = f"""
+                You are an award-winning author. Write a high-value, comprehensive {num_chapters}-chapter guide titled '{p_title}'.
+                Subtitle: '{p_subtitle}'. Target Niche: '{chosen_niche}'.
                 
-                st.success(f"Content generated with `{used_model}`!")
+                FORMAT STRICTLY AS:
+                ### CHAPTER 1: [Title]
+                [Detailed practical paragraphs with action steps]
+                > Pro Tip: [A powerful key takeaway quote]
                 
-                sections = []
-                raw_chapters = raw_text.split("### CHAPTER ")
-                for rc in raw_chapters:
+                ### CHAPTER 2: [Title]
+                [Content]
+                
+                (Continue for all {num_chapters} chapters without missing anything.)
+                """
+                raw_ebook_text, _ = generate_with_retry(ebook_prompt, model_choice, available_models)
+                
+                # Parse Chapters
+                chapters_list = []
+                for rc in raw_ebook_text.split("### CHAPTER "):
                     if not rc.strip():
                         continue
                     lines = rc.strip().split("\n", 1)
-                    heading = "CHAPTER " + lines[0].strip()
-                    body = lines.strip() if len(lines) > 1 else ""
-                    sections.append((heading, body))
+                    ch_h = "CHAPTER " + lines[0].strip()
+                    ch_b = lines.strip() if len(lines) > 1 else ""
+                    chapters_list.append((ch_h, ch_b))
                 
-                pdf_bytes = create_ebook_pdf(eb_title, eb_author, sections)
-                
-                st.download_button(
-                    label="📥 Download Ready E-Book (PDF)",
-                    data=pdf_bytes,
-                    file_name=f"{eb_title.replace(' ', '_').lower()}.pdf",
-                    mime="application/pdf"
-                )
-                
-                with st.expander("👁️ View Generated Content Text"):
-                    st.markdown(raw_text)
-                    
-            except Exception as e:
-                st.error(f"Generation Error: {e}")
+                ebook_pdf_bytes = build_pro_ebook(p_title, p_author, p_subtitle, chapters_list)
 
-
-# ==========================================
-# TAB 3: DAILY PLANNER & WORKBOOK GENERATOR
-# ==========================================
-with tab_planner:
-    st.subheader("🗓️ Daily Planner & Workbook Creator")
-    st.caption("Generate structured printable daily planners with time blocks and goal sheets.")
-    
-    col_p1, col_p2 = st.columns(2)
-    with col_p1:
-        p_title = st.text_input("Planner Title", "Daily Productivity & Focus Planner")
-        p_user = st.text_input("User / Brand Name", "Executive Edition")
-        p_focus = st.text_input("Target Audience / Theme", "Entrepreneurs, Students, Busy Professionals")
-    with col_p2:
-        p_custom_notes = st.text_area("Custom Affirmation / Footer Note", "Focus on what moves the needle today. Small consistent actions compound.")
-        
-    if st.button("🛠️ Build & Download Planner PDF", key="btn_planner"):
-        with st.spinner("AI structured planner construct kar raha hai..."):
-            try:
-                goals = ["Complete key daily priority task", "Deep work focus session (2 hours)", "Physical exercise & wellness routine"]
-                schedule = [
-                    ("08:00 - 10:00 AM", "Deep Focus & High-Value Output"),
-                    ("10:00 - 12:00 PM", "Core Project Execution"),
-                    ("01:00 - 02:30 PM", "Meetings & Communications"),
-                    ("02:30 - 04:30 PM", "Task Batching & Admin"),
-                    ("05:00 - 06:30 PM", "Skill Growth & Exercise"),
-                    ("08:00 - 09:00 PM", "Daily Review & Next Day Planning")
+                # 2. Generate Planner Data
+                planner_goals = [
+                    f"Complete core deep work block for {chosen_niche}",
+                    "Audit and eliminate top 3 digital distractions",
+                    "Review daily output metrics and log achievements"
                 ]
-                
-                planner_pdf = create_planner_pdf(p_title, p_user, goals, schedule, p_custom_notes)
-                
-                st.success("Planner tayyar hai!")
-                st.download_button(
-                    label="📥 Download Printable Planner (PDF)",
-                    data=planner_pdf,
-                    file_name=f"{p_title.replace(' ', '_').lower()}.pdf",
-                    mime="application/pdf"
-                )
-            except Exception as e:
-                st.error(f"Error: {e}")
+                planner_sched = [
+                    ("08:00 - 10:00 AM", "Deep Focus: Core High-Leverage Execution"),
+                    ("10:00 - 11:30 AM", "Creative Sprint & Project Development"),
+                    ("11:30 - 12:30 PM", "Strategic Communications & Review"),
+                    ("01:30 - 03:00 PM", "Task Batching & Operational Admin"),
+                    ("03:00 - 04:30 PM", "Skill Growth & Deep Learning Block"),
+                    ("05:00 - 06:00 PM", "Daily Wrap-up, Next Day Goal Setting")
+                ]
+                planner_notes = f"Small daily disciplines compound into massive long-term freedom in {chosen_niche}."
+                planner_pdf_bytes = build_pro_planner(f"{p_title} Planner", p_author, planner_goals, planner_sched, planner_notes)
 
-
-# ==========================================
-# TAB 4: CANVA DESIGN BLUEPRINTS
-# ==========================================
-with tab_canva:
-    st.subheader("🎨 Canva Free Design Studio & Blueprint")
-    st.caption("Generate color schemes, layout coordinates, copywriting, and instant Canva redirect links.")
-    
-    c_type = st.selectbox("Design Type", [
-        "Instagram Post (1080x1080)",
-        "Instagram Reel / Story (1080x1920)",
-        "Pinterest Pin (1000x1500)",
-        "E-Book Cover (1600x2560)",
-        "YouTube Thumbnail (1280x720)",
-        "Flyer / Poster (A4)"
-    ])
-    c_theme = st.text_input("Design Theme / Purpose", "Modern Dark-Mode Tech Announcement")
-    c_brand_colors = st.text_input("Brand Color Preference (Optional)", "Deep Navy Blue, Electric Indigo, Neon Cyan, Pure White")
-    
-    if st.button("🚀 Generate Canva Design Blueprint", key="btn_canva"):
-        with st.spinner("Design architecture compose ho rahi hai..."):
-            try:
-                prompt = f"""
-                You are an award-winning creative art director and Canva template designer.
-                Create a complete visual blueprint for a '{c_type}' with theme '{c_theme}'.
-                Preferred Colors: {c_brand_colors}
+                # 3. Generate Interactive Web App / Code Tool
+                code_prompt = f"""
+                Create a standalone, stunning, modern dark-mode single-file HTML/CSS/JS web application tool specifically tailored for '{chosen_niche}'.
+                For example, an interactive ROI/Productivity Calculator, Daily Habit Tracker, or Focus Sprint Timer.
                 
-                Provide:
-                1. Exact Dimensions & Grid Layout Guidelines.
-                2. Hex Color Palette (Primary, Secondary, Accent, Background, Text).
-                3. Font Pairing (Headline font & Body font available in free Canva).
-                4. Exact Visual Elements & Shape Placements (step-by-step layer guide).
-                5. High-Converting Copy / Text Snippets to paste into the design.
-                6. Free Canva element search keywords (e.g. 'abstract gradient blob', 'minimal geometric frame').
+                Include:
+                - Sleek modern CSS with glassmorphic cards and gradients.
+                - Complete working Javascript functionality.
+                - Output ONLY valid, runnable HTML/CSS/JS without markdown or placeholders.
                 """
-                res_text, used_model = generate_with_retry(prompt, model_choice, available_models)
-                st.markdown(res_text)
-                
-                canva_url_map = {
-                    "Instagram Post (1080x1080)": "https://www.canva.com/create/instagram-posts/",
-                    "Instagram Reel / Story (1080x1920)": "https://www.canva.com/create/stories/",
-                    "Pinterest Pin (1000x1500)": "https://www.canva.com/create/pinterest-pins/",
-                    "E-Book Cover (1600x2560)": "https://www.canva.com/create/book-covers/",
-                    "YouTube Thumbnail (1280x720)": "https://www.canva.com/create/youtube-thumbnails/",
-                    "Flyer / Poster (A4)": "https://www.canva.com/create/flyers/"
+                code_text, _ = generate_with_retry(code_prompt, model_choice, available_models)
+                clean_code = code_text.replace("```html", "").replace("```", "").strip()
+
+                # 4. Generate Canva & Marketing Blueprint
+                canva_prompt = f"""
+                Create a high-converting Canva Visual & Marketing Asset Blueprint for '{p_title}' ({chosen_niche}):
+                1. Hex Color Palette (Primary, Secondary, Accent, Background, Text).
+                2. Font Pairings for Canva Free.
+                3. Instagram Carousel Post Layout (5 Slides Copy & Visual cues).
+                4. Pinterest High-CTR Pin Copy & Design Blueprint.
+                5. Free Canva Element Search Keywords.
+                """
+                canva_text, _ = generate_with_retry(canva_prompt, model_choice, available_models)
+
+                # 5. Generate Sales Copy
+                copy_prompt = f"""
+                Write a high-converting Gumroad/Etsy sales page copy for '{p_title}' selling for {p_price}:
+                - Magnetic Headline & Sub-headline
+                - The Burning Problem & The Solution
+                - What's Included (E-Book, Printable Planner, Web App Tool, Templates)
+                - Risk-Free Guarantee & Strong Call-to-Action (CTA)
+                """
+                sales_copy_text, _ = generate_with_retry(copy_prompt, model_choice, available_models)
+
+                # Save all to session state
+                st.session_state.bundle_data = {
+                    "title": p_title,
+                    "author": p_author,
+                    "ebook_pdf": ebook_pdf_bytes,
+                    "planner_pdf": planner_pdf_bytes,
+                    "code_html": clean_code,
+                    "canva_blueprint": canva_text,
+                    "sales_copy": sales_copy_text
                 }
-                direct_link = canva_url_map.get(c_type, "https://www.canva.com")
-                st.markdown(f"👉 [**Click here to Open Canva with {c_type} Canvas**]({direct_link})")
+                st.success("🎉 Complete Product Suite Tayyar Hai! Check Step 3 tab.")
                 
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Error during generation: {e}")
 
 
-# ==========================================
-# TAB 5: CODE & MICRO-TOOL GENERATOR
-# ==========================================
-with tab_code:
-    st.subheader("💻 Bug-Free Code & Digital Tool Generator")
-    st.caption("Generate single-file web apps, Python scripts, calculators, or automated bots to sell.")
+# =======================================================
+# STEP 3: DOWNLOAD & LAUNCH CENTER
+# =======================================================
+with tab_step3:
+    st.subheader("📦 Step 3: Complete Product Suite & Download Hub")
     
-    code_lang = st.selectbox("Product Code Format", ["Python Script / CLI Tool", "Single-File HTML/CSS/JS Web App", "Streamlit Mini-App Script", "Notion / API Automation Script"])
-    code_desc = st.text_area("Describe the Tool / Functionality", "A modern compound interest & investment ROI calculator with dynamic charts and breakdown table.")
-    
-    if st.button("⚡ Generate Bug-Free Code Product", key="btn_code"):
-        with st.spinner("AI bug-free code synthesize kar raha hai..."):
-            try:
-                prompt = f"""
-                You are a senior software architect.
-                Generate a complete, bug-free, self-contained digital product in '{code_lang}'.
-                Requirements: {code_desc}
-                
-                CRITICAL INSTRUCTIONS:
-                - Output complete, runnable, production-ready code with zero missing placeholders.
-                - Include inline comments explaining the logic.
-                - If HTML/JS, make it visually stunning with modern dark/glassmorphic CSS.
-                - Include a brief 'How to Package & Sell this Tool' guide at the end.
-                """
-                res_text, used_model = generate_with_retry(prompt, model_choice, available_models)
-                st.markdown(res_text)
-            except Exception as e:
-                st.error(f"Error: {e}")
+    if not st.session_state.bundle_data:
+        st.info("ℹ️ Pehle **Step 1** mein research karein aur **Step 2** se product generate karein.")
+    else:
+        b = st.session_state.bundle_data
+        
+        st.markdown(f"### 🚀 Launch Bundle: **{b['title']}**")
+        st.caption(f"Brand: {b['author']} | All assets packaged and ready to sell.")
+        
+        col_d1, col_d2 = st.columns(2)
+        
+        with col_d1:
+            st.markdown("#### 📖 1. Master E-Book (PDF)")
+            st.write("Complete multi-chapter guide with custom cover page, headers, and formatted typography.")
+            st.download_button(
+                label="📥 Download Ready E-Book (PDF)",
+                data=b["ebook_pdf"],
+                file_name=f"{b['title'].replace(' ', '_').lower()}_ebook.pdf",
+                mime="application/pdf"
+            )
+            
+            st.markdown("---")
+            st.markdown("#### 🗓️ 2. Printable Daily Planner (PDF)")
+            st.write("Aesthetic daily execution planner with zero overlapping, priority grids & reflection blocks.")
+            st.download_button(
+                label="📥 Download Printable Planner (PDF)",
+                data=b["planner_pdf"],
+                file_name=f"{b['title'].replace(' ', '_').lower()}_planner.pdf",
+                mime="application/pdf"
+            )
 
+        with col_d2:
+            st.markdown("#### 💻 3. Interactive Web App / Tool (HTML)")
+            st.write("Self-contained interactive software tool with modern UI.")
+            st.download_button(
+                label="📥 Download Interactive Web App (.html)",
+                data=b["code_html"],
+                file_name=f"{b['title'].replace(' ', '_').lower()}_tool.html",
+                mime="text/html"
+            )
+            
+            st.markdown("---")
+            st.markdown("#### 🎨 4. Canva Free Studio Links")
+            st.markdown("👉 [Open Canva Instagram Post Canvas](https://www.canva.com/create/instagram-posts/)")
+            st.markdown("👉 [Open Canva Pinterest Pin Canvas](https://www.canva.com/create/pinterest-pins/)")
+            st.markdown("👉 [Open Canva E-Book Cover Canvas](https://www.canva.com/create/book-covers/)")
 
-# ==========================================
-# TAB 6: PDF ANALYZER & REMASTER
-# ==========================================
-with tab_pdf_reader:
-    st.subheader("📄 PDF Reader, Analyzer & Reverse-Engineer")
-    st.caption("Existing PDFs upload karein aur unka content analyze, summarize ya new digital product mein transform karein.")
-    
-    uploaded_pdf = st.file_uploader("Upload PDF Document", type=["pdf"])
-    pdf_goal = st.selectbox("Action to Perform", [
-        "Summarize & Extract Core Frameworks",
-        "Rewrite as an Actionable Workbook / Checklist",
-        "Generate 10 Social Media Carousel Posts from this PDF",
-        "Identify Missing Gaps & Improve Content"
-    ])
-    
-    if uploaded_pdf and st.button("🚀 Process PDF", key="btn_pdf_analyze"):
-        with st.spinner("PDF extract aur analyze ho rahi hai..."):
-            try:
-                reader = PdfReader(uploaded_pdf)
-                extracted_text = ""
-                for page in reader.pages[:10]:
-                    extracted_text += page.extract_text() or ""
-                
-                if not extracted_text.strip():
-                    st.warning("PDF mein readable text nahi mil saka.")
-                else:
-                    prompt = f"""
-                    You are an expert digital content strategist.
-                    Task: {pdf_goal}
-                    
-                    Here is the text extracted from the document:
-                    \"\"\"{extracted_text[:8000]}\"\"\"
-                    
-                    Provide a comprehensive, high-value breakdown according to the requested action.
-                    """
-                    res_text, used_model = generate_with_retry(prompt, model_choice, available_models)
-                    st.markdown(res_text)
-            except Exception as e:
-                st.error(f"PDF Analysis Error: {e}")
+        st.markdown("---")
+        with st.expander("🎨 View Canva Marketing Blueprint & Prompts"):
+            st.markdown(b["canva_blueprint"])
+
+        with st.expander("📝 View High-Converting Sales Copy & Description"):
+            st.markdown(b["sales_copy"])
+
+        with st.expander("💻 Live Preview of Generated Interactive Web Tool"):
+            st.components.v1.html(b["code_html"], height=550, scrolling=True)
+
 
 # --- FOOTER ---
 st.markdown("---")
 st.markdown(
     "<div style='text-align: center; color: #64748b; font-size: 0.85rem;'>"
-    "⚡ Built with Gemini Pro & Streamlit | Production Ready for GitHub & Cloud Deployment"
+    "⚡ Built with Gemini Pro & Streamlit | Automated Digital Product Studio"
     "</div>",
     unsafe_allow_html=True
 )
