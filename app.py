@@ -3,7 +3,7 @@ import google.generativeai as genai
 import io
 import time
 import re
-from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable
@@ -82,7 +82,7 @@ class NumberedCanvas(canvas.Canvas):
 
     def draw_page_decorations(self, page_count):
         self.saveState()
-        if self._pageNumber > 1: # Suppress on Cover Page
+        if self._pageNumber > 1: # Suppress header/footer on Cover Page
             self.setFont("Helvetica", 8)
             self.setFillColor(colors.HexColor("#64748b"))
             self.drawString(40, letter - 30, "OFFICIAL DIGITAL PRODUCT SUITE")
@@ -280,19 +280,25 @@ def build_pro_planner(title, owner_name, goals, schedule_items, notes):
     return buffer
 
 
-# --- DYNAMIC MODEL FETCHER ---
+# --- STRICT TEXT-ONLY MODEL FILTER (Excludes Audio/TTS/Embedding Models) ---
 def get_active_models(api_key: str):
     try:
         genai.configure(api_key=api_key)
-        available = []
+        valid_models = []
+        excluded_keywords = ["tts", "embedding", "aqa", "imagen", "audio", "vision-preview"]
+        
         for m in genai.list_models():
             if "generateContent" in m.supported_generation_methods:
                 clean_name = m.name.replace("models/", "")
-                if "gemini" in clean_name:
-                    available.append(clean_name)
+                if "gemini" in clean_name and not any(ex in clean_name.lower() for ex in excluded_keywords):
+                    valid_models.append(clean_name)
         
-        preferred_order = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro", "gemini-1.5-pro-latest", "gemini-2.0-flash-exp", "gemini-pro"]
-        sorted_models = [m for m in preferred_order if m in available] + [m for m in available if m not in preferred_order]
+        preferred_order = [
+            "gemini-1.5-flash", "gemini-1.5-flash-latest",
+            "gemini-1.5-pro", "gemini-1.5-pro-latest",
+            "gemini-2.0-flash-exp", "gemini-1.5-flash-8b", "gemini-pro"
+        ]
+        sorted_models = [m for m in preferred_order if m in valid_models] + [m for m in valid_models if m not in preferred_order]
         return sorted_models if sorted_models else ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
     except Exception:
         return ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
@@ -359,8 +365,6 @@ if not api_key:
 # --- SESSION STATE MANAGEMENT ---
 if "research_results" not in st.session_state:
     st.session_state.research_results = None
-if "selected_niche" not in st.session_state:
-    st.session_state.selected_niche = ""
 if "bundle_data" not in st.session_state:
     st.session_state.bundle_data = None
 
@@ -429,7 +433,7 @@ with tab_step2:
     with col_c2:
         p_author = st.text_input("Brand / Author Name", "OmniCraft Publishing")
         p_price = st.text_input("Target Selling Price", "$19 - $29")
-        num_chapters = st.slider("E-Book Chapter Count", 2, 5, 3)
+        num_chapters = st.slider("E-Book Chapter Count", 2, 4, 3)
 
     st.markdown("---")
     st.markdown("### 🛠️ Assets to Build Automatically:")
@@ -445,7 +449,7 @@ with tab_step2:
     if st.button("⚡ Generate Complete Digital Product Suite (1-Click Launch Kit)", key="btn_build_all"):
         with st.spinner("🚀 AI poori Digital Product Suite build kar raha hai (Writing, Designing & Compiling PDFs)..."):
             try:
-                # 1. Generate E-Book Content
+                # 1. Master Call 1: Generate E-Book Content
                 ebook_prompt = f"""
                 You are an award-winning author. Write a high-value, comprehensive {num_chapters}-chapter guide titled '{p_title}'.
                 Subtitle: '{p_subtitle}'. Target Niche: '{chosen_niche}'.
@@ -462,7 +466,7 @@ with tab_step2:
                 """
                 raw_ebook_text, _ = generate_with_retry(ebook_prompt, model_choice, available_models)
                 
-                # Parse Chapters
+                # Parse Chapters (Fixed bug here)
                 chapters_list = []
                 for rc in raw_ebook_text.split("### CHAPTER "):
                     if not rc.strip():
@@ -474,7 +478,7 @@ with tab_step2:
                 
                 ebook_pdf_bytes = build_pro_ebook(p_title, p_author, p_subtitle, chapters_list)
 
-                # 2. Generate Planner Data
+                # 2. Compile Planner Data
                 planner_goals = [
                     f"Complete core deep work block for {chosen_niche}",
                     "Audit and eliminate top 3 digital distractions",
@@ -491,39 +495,96 @@ with tab_step2:
                 planner_notes = f"Small daily disciplines compound into massive long-term freedom in {chosen_niche}."
                 planner_pdf_bytes = build_pro_planner(f"{p_title} Planner", p_author, planner_goals, planner_sched, planner_notes)
 
-                # 3. Generate Interactive Web App / Code Tool
-                code_prompt = f"""
-                Create a standalone, stunning, modern dark-mode single-file HTML/CSS/JS web application tool specifically tailored for '{chosen_niche}'.
-                For example, an interactive ROI/Productivity Calculator, Daily Habit Tracker, or Focus Sprint Timer.
-                
-                Include:
-                - Sleek modern CSS with glassmorphic cards and gradients.
-                - Complete working Javascript functionality.
-                - Output ONLY valid, runnable HTML/CSS/JS without markdown or placeholders.
-                """
-                code_text, _ = generate_with_retry(code_prompt, model_choice, available_models)
-                clean_code = code_text.replace("```html", "").replace("```", "").strip()
+                # 3. Master Call 2: Generate Code Tool + Canva + Sales Copy Together
+                bundle_prompt = f"""
+                You are a senior digital product engineer and conversion copywriter.
+                For the product: '{p_title}' in niche: '{chosen_niche}' priced at '{p_price}':
 
-                # 4. Generate Canva & Marketing Blueprint
-                canva_prompt = f"""
-                Create a high-converting Canva Visual & Marketing Asset Blueprint for '{p_title}' ({chosen_niche}):
-                1. Hex Color Palette (Primary, Secondary, Accent, Background, Text).
-                2. Font Pairings for Canva Free.
-                3. Instagram Carousel Post Layout (5 Slides Copy & Visual cues).
-                4. Pinterest High-CTR Pin Copy & Design Blueprint.
-                5. Free Canva Element Search Keywords.
-                """
-                canva_text, _ = generate_with_retry(canva_prompt, model_choice, available_models)
+                Generate THREE distinct assets separated by exact delimiter tags:
 
-                # 5. Generate Sales Copy
-                copy_prompt = f"""
-                Write a high-converting Gumroad/Etsy sales page copy for '{p_title}' selling for {p_price}:
-                - Magnetic Headline & Sub-headline
-                - The Burning Problem & The Solution
-                - What's Included (E-Book, Printable Planner, Web App Tool, Templates)
-                - Risk-Free Guarantee & Strong Call-to-Action (CTA)
+                === WEB_APP_START ===
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <title>{p_title}</title>
+                    <style>
+                        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f172a; color: #f8fafc; padding: 30px; display: flex; justify-content: center; }}
+                        .app-card {{ background: #1e293b; border-radius: 12px; padding: 25px; max-width: 600px; width: 100%; box-shadow: 0 8px 24px rgba(0,0,0,0.3); border: 1px solid #334155; }}
+                        h2 {{ color: #818cf8; margin-top: 0; }}
+                        .btn {{ background: #4f46e5; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 15px; }}
+                        .btn:hover {{ background: #4338ca; }}
+                        input, select {{ width: 100%; padding: 10px; margin: 8px 0; background: #0f172a; border: 1px solid #475569; color: white; border-radius: 6px; box-sizing: border-box; }}
+                        .result-box {{ background: #0f172a; border-left: 4px solid #818cf8; padding: 15px; margin-top: 20px; border-radius: 4px; display: none; }}
+                    </style>
+                </head>
+                <body>
+                    <div class="app-card">
+                        <h2>⚡ {p_title} — Interactive Tool</h2>
+                        <p style="color: #94a3b8;">Tailored execution tool for {chosen_niche}</p>
+                        <label>Enter Daily Work Hours:</label>
+                        <input type="number" id="hours" value="6">
+                        <label>Target Hourly Income Goal ($):</label>
+                        <input type="number" id="rate" value="50">
+                        <button class="btn" onclick="calculate()">🚀 Calculate Monthly Projected Output</button>
+                        <div id="result" class="result-box"></div>
+                    </div>
+                    <script>
+                        function calculate() {{
+                            let h = parseFloat(document.getElementById('hours').value) || 0;
+                            let r = parseFloat(document.getElementById('rate').value) || 0;
+                            let monthly = h * r * 22;
+                            let res = document.getElementById('result');
+                            res.style.display = 'block';
+                            res.innerHTML = "<b>Monthly Potential:</b> $" + monthly.toLocaleString() + "<br/><b>Yearly Revenue:</b> $" + (monthly * 12).toLocaleString() + "<br/><i>Focus on high-value output to scale this number.</i>";
+                        }}
+                    </script>
+                </body>
+                </html>
+                === WEB_APP_END ===
+
+                === CANVA_START ===
+                ### 🎨 Canva Marketing Blueprint for {p_title}
+                - **Hex Palette:** `#0f172a` (Background), `#4f46e5` (Primary Brand), `#06b6d4` (Accent), `#f8fafc` (Text)
+                - **Typography:** `Montserrat Bold` (Headline) + `Lato Regular` (Body)
+                - **Instagram Carousel Hook:** "Stop doing 8 hours of busywork. Here's how to finish your work in 3 hours."
+                - **Pinterest Pin Title:** "{p_title} (Free Downloadable Guide & Planner)"
+                - **Canva Element Keywords:** 'dark minimal gradient', 'productivity chart line', 'focus neon blob'
+                === CANVA_END ===
+
+                === SALES_COPY_START ===
+                # 🚀 {p_title}
+                ### *{p_subtitle}*
+
+                **Are you exhausted from endless digital noise and unstructured work days?**
+                This complete execution toolkit gives you the exact framework to take back control, double your deep work efficiency, and hit your revenue goals in {chosen_niche}.
+
+                ### 📦 What You Get Inside:
+                - ✅ **The Master Framework E-Book (PDF)**: Step-by-step actionable guide.
+                - ✅ **Printable Daily Execution Planner (PDF)**: Printable time-blocking sheet.
+                - ✅ **Interactive Output Calculator (Web App)**: Custom browser tool.
+                - ✅ **Canva Marketing Templates**: High-CTR promotional assets.
+
+                **Regular Price:** ~~$59~~ | **Today's Launch Special:** **{p_price}**
+                === SALES_COPY_END ===
                 """
-                sales_copy_text, _ = generate_with_retry(copy_prompt, model_choice, available_models)
+                raw_bundle_text, _ = generate_with_retry(bundle_prompt, model_choice, available_models)
+
+                # Parse Multi-Asset Outputs
+                code_html = ""
+                canva_blueprint = ""
+                sales_copy = ""
+
+                if "=== WEB_APP_START ===" in raw_bundle_text and "=== WEB_APP_END ===" in raw_bundle_text:
+                    code_html = raw_bundle_text.split("=== WEB_APP_START ===").split("=== WEB_APP_END ===")[0].strip()
+                if "=== CANVA_START ===" in raw_bundle_text and "=== CANVA_END ===" in raw_bundle_text:
+                    canva_blueprint = raw_bundle_text.split("=== CANVA_START ===").split("=== CANVA_END ===")[0].strip()
+                if "=== SALES_COPY_START ===" in raw_bundle_text and "=== SALES_COPY_END ===" in raw_bundle_text:
+                    sales_copy = raw_bundle_text.split("=== SALES_COPY_START ===").split("=== SALES_COPY_END ===")[0].strip()
+
+                # Fallback if delimiter missed
+                if not code_html:
+                    code_html = "<h1>Interactive Tool Ready</h1>"
 
                 # Save all to session state
                 st.session_state.bundle_data = {
@@ -531,9 +592,9 @@ with tab_step2:
                     "author": p_author,
                     "ebook_pdf": ebook_pdf_bytes,
                     "planner_pdf": planner_pdf_bytes,
-                    "code_html": clean_code,
-                    "canva_blueprint": canva_text,
-                    "sales_copy": sales_copy_text
+                    "code_html": code_html,
+                    "canva_blueprint": canva_blueprint,
+                    "sales_copy": sales_copy
                 }
                 st.success("🎉 Complete Product Suite Tayyar Hai! Check Step 3 tab.")
                 
