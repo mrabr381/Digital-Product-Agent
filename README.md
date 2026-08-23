@@ -16,7 +16,7 @@ An all-in-one AI agent built with Streamlit and Google Gemini Pro to research, g
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/your-username/digital-product-agent.git](https://github.com/your-username/digital-product-agent.git)
+   git clone [https://github.com/mrabr381/Digital-Product-Agent.git](https://github.com/mrabr381/Digital-Product-Agent.git)
    cd digital-product-agent
    ```
 
