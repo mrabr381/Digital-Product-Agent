@@ -82,18 +82,20 @@ class NumberedCanvas(canvas.Canvas):
 
     def draw_page_decorations(self, page_count):
         self.saveState()
+        page_w = float(letter[0])
+        page_h = float(letter)
         if self._pageNumber > 1: # Suppress header/footer on Cover Page
             self.setFont("Helvetica", 8)
             self.setFillColor(colors.HexColor("#64748b"))
-            self.drawString(40, letter - 30, "OFFICIAL DIGITAL PRODUCT SUITE")
+            self.drawString(40, page_h - 30, "OFFICIAL DIGITAL PRODUCT SUITE")
             self.setStrokeColor(colors.HexColor("#cbd5e1"))
             self.setLineWidth(0.5)
-            self.line(40, letter - 35, letter[0] - 40, letter - 35)
+            self.line(40, page_h - 35, page_w - 40, page_h - 35)
 
             # Footer
-            self.drawRightString(letter[0] - 40, 25, f"Page {self._pageNumber} of {page_count}")
+            self.drawRightString(page_w - 40, 25, f"Page {self._pageNumber} of {page_count}")
             self.drawString(40, 25, "Confidential & Exclusive Content | All Rights Reserved")
-            self.line(40, 36, letter[0] - 40, 36)
+            self.line(40, 36, page_w - 40, 36)
         self.restoreState()
 
 
@@ -279,7 +281,7 @@ def build_pro_planner(title, owner_name, goals, schedule_items, notes):
     return buffer
 
 
-# --- SAFE E-BOOK CHAPTER PARSER (ZERO ATTRIBUTE ERROR) ---
+# --- SAFE E-BOOK CHAPTER PARSER ---
 def parse_ebook_chapters(raw_text: str):
     chapters = []
     lines = raw_text.strip().split("\n")
@@ -309,31 +311,32 @@ def parse_ebook_chapters(raw_text: str):
     return chapters
 
 
-# --- SAFE BUNDLE DELIMITER PARSER ---
+# --- SAFE BUNDLE DELIMITER PARSER (REGEX-BASED) ---
 def parse_bundle_response(raw_text: str):
     code_html = ""
     canva_blueprint = ""
     sales_copy = ""
 
-    if "=== WEB_APP_START ===" in raw_text and "=== WEB_APP_END ===" in raw_text:
-        part1 = raw_text.split("=== WEB_APP_START ===")
-        code_html = part1.split("=== WEB_APP_END ===")[0].strip()
-    
-    if "=== CANVA_START ===" in raw_text and "=== CANVA_END ===" in raw_text:
-        part2 = raw_text.split("=== CANVA_START ===")
-        canva_blueprint = part2.split("=== CANVA_END ===")[0].strip()
+    web_match = re.search(r'=== WEB_APP_START ===(.*?)=== WEB_APP_END ===', raw_text, re.DOTALL)
+    if web_match:
+        code_html = web_match.group(1).strip()
+    else:
+        html_block = re.search(r'```(?:html)?\s*(<!DOCTYPE html>.*?)```', raw_text, re.DOTALL | re.IGNORECASE)
+        if html_block:
+            code_html = html_block.group(1).strip()
+        else:
+            code_html = "<!DOCTYPE html><html><head><title>Productivity Tool</title><style>body{font-family:sans-serif;background:#0f172a;color:white;padding:30px;}</style></head><body><h2>⚡ Interactive Focus Tool</h2><p>Custom tool ready for launch.</p></body></html>"
 
-    if "=== SALES_COPY_START ===" in raw_text and "=== SALES_COPY_END ===" in raw_text:
-        part3 = raw_text.split("=== SALES_COPY_START ===")
-        sales_copy = part3.split("=== SALES_COPY_END ===")[0].strip()
-
-    if not code_html:
-        code_html = "<!DOCTYPE html><html><head><title>Productivity Tool</title><style>body{font-family:sans-serif;background:#0f172a;color:white;padding:30px;}</style></head><body><h2>⚡ Interactive Focus Tool</h2><p>Custom tool ready for launch.</p></body></html>"
-    
-    if not canva_blueprint:
+    canva_match = re.search(r'=== CANVA_START ===(.*?)=== CANVA_END ===', raw_text, re.DOTALL)
+    if canva_match:
+        canva_blueprint = canva_match.group(1).strip()
+    else:
         canva_blueprint = "### 🎨 Canva Marketing Blueprint\n- **Hex Palette:** `#0f172a`, `#4f46e5`, `#06b6d4`, `#f8fafc`\n- **Typography:** Montserrat Bold (Headlines) & Lato Regular (Body)"
 
-    if not sales_copy:
+    sales_match = re.search(r'=== SALES_COPY_START ===(.*?)=== SALES_COPY_END ===', raw_text, re.DOTALL)
+    if sales_match:
+        sales_copy = sales_match.group(1).strip()
+    else:
         sales_copy = "### 🚀 Product Launch Copy\nHigh converting description ready for Gumroad and Etsy."
 
     return code_html, canva_blueprint, sales_copy
