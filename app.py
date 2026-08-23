@@ -380,7 +380,7 @@ with tab_step1:
     st.subheader("🔍 Step 1: Market Intelligence & Niche Discovery")
     st.caption("Enter a broad topic. AI will identify 3 highly profitable sub-niches with monetization potential.")
     
-    col_s1, col_s2 = st.columns()
+    col_s1, col_s2 = st.columns(2)
     with col_s1:
         broad_topic = st.text_input("Enter Broad Niche / Target Audience", "Productivity & Deep Work for Remote Founders & Freelancers")
     with col_s2:
