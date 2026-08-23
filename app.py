@@ -4,10 +4,8 @@ import io
 from pypdf import PdfReader
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-import time
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -20,13 +18,11 @@ st.set_page_config(
 # --- MODERN CUSTOM CSS ---
 st.markdown("""
 <style>
-    /* Main container background and styling */
     .stApp {
         background-color: #0e1117;
         color: #f0f2f6;
     }
     
-    /* Card design */
     .custom-card {
         background: linear-gradient(145deg, #1a1f2c, #131722);
         border: 1px solid #2d3748;
@@ -47,7 +43,6 @@ st.markdown("""
         margin-bottom: 8px;
     }
 
-    /* Buttons */
     .stButton>button {
         background: linear-gradient(90deg, #6366f1, #4f46e5);
         color: white;
@@ -60,13 +55,6 @@ st.markdown("""
     .stButton>button:hover {
         background: linear-gradient(90deg, #4f46e5, #4338ca);
         box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
-    }
-    
-    /* Code output block */
-    pre {
-        background-color: #1e2433 !important;
-        border: 1px solid #334155 !important;
-        border-radius: 8px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -81,19 +69,16 @@ def init_gemini(api_key: str):
         st.error(f"API Configuration Error: {e}")
         return False
 
-def get_model(model_name="gemini-1.5-pro", enable_search=False):
-    # Search grounding via Google Search Tool
-    tools = [{"google_search": {}}] if enable_search else None
-    return genai.GenerativeModel(model_name=model_name, tools=tools)
+def get_model(model_name="gemini-1.5-pro"):
+    return genai.GenerativeModel(model_name=model_name)
 
 
-# --- PDF GENERATOR UTILITY (ReportLab) ---
+# --- PDF GENERATOR UTILITIES ---
 def create_ebook_pdf(title, author, content_sections):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=54, leftMargin=54, topMargin=54, bottomMargin=54)
     styles = getSampleStyleSheet()
 
-    # Custom styles
     title_style = ParagraphStyle(
         'DocTitle',
         parent=styles['Heading1'],
@@ -135,16 +120,13 @@ def create_ebook_pdf(title, author, content_sections):
     )
 
     story = []
-    # Title & Author
     story.append(Spacer(1, 40))
     story.append(Paragraph(title, title_style))
     story.append(Paragraph(f"Created by: {author}", author_style))
     story.append(Spacer(1, 20))
 
-    # Content Sections
     for heading, text in content_sections:
         story.append(Paragraph(heading, h1_style))
-        # Split into paragraphs
         for p in text.split("\n\n"):
             clean_p = p.strip().replace("\n", " ")
             if clean_p:
@@ -206,10 +188,9 @@ def create_planner_pdf(title, user_name, goals, schedule_items, notes):
     story.append(t_sched)
     story.append(Spacer(1, 15))
 
-    # Notes section
     story.append(Paragraph("<b>Daily Reflections & Notes:</b>", styles['Normal']))
     story.append(Spacer(1, 5))
-    story.append(Paragraph(notes if notes else "Keep striving toward your vision.", styles['Normal']))
+    story.append(Paragraph(notes if notes else "Focus on consistent progress.", styles['Normal']))
 
     doc.build(story)
     buffer.seek(0)
@@ -218,17 +199,14 @@ def create_planner_pdf(title, user_name, goals, schedule_items, notes):
 
 # --- SIDEBAR CONFIGURATION ---
 with st.sidebar:
-    st.image("https://img.icons8.com/isometric/100/sparkling.png", width=60)
-    st.title("Studio Settings")
+    st.markdown("## ⚡ Studio Settings")
     
-    # API Key Handling (From Secrets or Input)
     default_key = st.secrets.get("GEMINI_API_KEY", "")
     api_key = st.text_input("🔑 Gemini API Key", value=default_key, type="password", help="Enter your Gemini API key from Google AI Studio.")
     
     st.markdown("---")
     st.markdown("### ⚙️ Engine Parameters")
     model_choice = st.selectbox("LLM Core", ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash-exp"])
-    web_search_active = st.checkbox("🌐 Real-time Web Search Grounding", value=True)
     
     st.markdown("---")
     st.markdown("### 💡 Quick Capabilities")
@@ -256,7 +234,7 @@ st.markdown("""
 
 # --- CHECK FOR API KEY ---
 if not api_key:
-    st.warning("⚠️ Baraye mehrbani Sidebar me apni **Gemini API Key** enter karein.")
+    st.warning("⚠️ Baraye mehrbani Sidebar mein apni **Gemini API Key** enter karein.")
     st.info("Aap free API key Google AI Studio (aistudio.google.com) se le sakte hain.")
     st.stop()
 
@@ -275,42 +253,42 @@ tab_research, tab_ebook, tab_planner, tab_canva, tab_code, tab_pdf_reader = st.t
 
 
 # ==========================================
-# TAB 1: REAL-TIME MARKET RESEARCH
+# TAB 1: MARKET RESEARCH
 # ==========================================
 with tab_research:
     st.subheader("🔍 Digital Product Trend & Market Research")
-    st.caption("Search real-time trends, competitor price points, and bestselling digital product ideas.")
+    st.caption("Search trends, competitor price points, and bestselling digital product ideas.")
     
-    col1, col2 = st.columns([3, 1])
+    col1, col2 = st.columns()
     with col1:
-        research_query = st.text_input("Enter Niche or Product Idea", placeholder="e.g. Notion financial trackers for freelancers, Self-help e-books on burnout")
+        research_query = st.text_input("Enter Niche or Product Idea", placeholder="e.g. printable planners, Notion financial trackers, burnout guides")
     with col2:
-        platform = st.selectbox("Target Marketplace", ["Gumroad", "Etsy", "Amazon KDP", "ProductHunt", "Direct Landing Page"])
+        platform = st.selectbox("Target Marketplace", ["Gumroad", "Etsy", "Amazon KDP", "ProductHunt", "Direct Website"])
         
     if st.button("🚀 Analyze Market & Opportunities", key="btn_research"):
         if not research_query:
             st.warning("Query likhna zaroori hai.")
         else:
-            with st.spinner("Real-time data analyze ho raha hai..."):
+            with st.spinner("Market analysis generate ho raha hai..."):
                 try:
-                    model = get_model(model_choice, enable_search=web_search_active)
+                    model = get_model(model_choice)
                     prompt = f"""
-                    You are a top-tier digital product strategist and market researcher.
-                    Perform a detailed market analysis for: '{research_query}' targeted for selling on '{platform}'.
+                    You are an expert digital product strategist, market analyst, and ecommerce advisor.
+                    Conduct a comprehensive, actionable market opportunity analysis for: '{research_query}' to sell on '{platform}'.
                     
-                    Include:
-                    1. High-Demand Sub-Niches & Pain Points.
-                    2. Top 3 Winning Product Angles (e-book, template, planner, or micro-tool).
-                    3. Pricing Strategy & Target Audience.
-                    4. Unique Selling Proposition (USP) to stand out from competitors.
-                    5. Step-by-Step Monetization Blueprint.
+                    Structure your response with clear headings:
+                    1. 🎯 Target Audience & Core Pain Points
+                    2. 💡 Top 3 High-Converting Digital Product Formats (PDF guide, printable planner, Notion template, or code tool)
+                    3. 💰 Pricing Strategy & Value Ladders (e.g. $9 starter vs $27 bundle)
+                    4. 🚀 Unique Selling Proposition (USP) & Marketing Angles
+                    5. 📋 Step-by-Step Launch Blueprint for {platform}
                     
-                    Keep the tone actionable, concise, and structured with clear headers.
+                    Provide concrete, practical, and highly specific ideas without generic fluff.
                     """
                     response = model.generate_content(prompt)
                     st.markdown(response.text)
                 except Exception as e:
-                    st.error(f"Error during search: {e}")
+                    st.error(f"Error during analysis: {e}")
 
 
 # ==========================================
@@ -326,10 +304,10 @@ with tab_ebook:
         eb_author = st.text_input("Author Name / Brand", "OmniCraft Publishing")
     with col_eb2:
         eb_topic = st.text_area("Core Topic & Key Takeaways", "Techniques for deep work, eliminating digital distraction, time boxing, and daily energy management.")
-        num_chapters = st.slider("Number of Chapters", 2, 6, 3)
+        num_chapters = st.slider("Number of Chapters", 2, 5, 3)
         
     if st.button("✨ Draft & Generate Full E-Book", key="btn_ebook"):
-        with st.spinner("AI content draft kar raha hai aur formatting ready kar raha hai..."):
+        with st.spinner("AI content draft kar raha hai..."):
             try:
                 model = get_model(model_choice)
                 prompt = f"""
@@ -351,7 +329,6 @@ with tab_ebook:
                 
                 st.success("Content successfully generated!")
                 
-                # Parse chapters
                 sections = []
                 raw_chapters = raw_text.split("### CHAPTER ")
                 for rc in raw_chapters:
@@ -359,10 +336,9 @@ with tab_ebook:
                         continue
                     lines = rc.strip().split("\n", 1)
                     heading = "CHAPTER " + lines[0].strip()
-                    body = lines[1].strip() if len(lines) > 1 else ""
+                    body = lines.strip() if len(lines) > 1 else ""
                     sections.append((heading, body))
                 
-                # Generate PDF
                 pdf_bytes = create_ebook_pdf(eb_title, eb_author, sections)
                 
                 st.download_button(
@@ -395,41 +371,17 @@ with tab_planner:
         p_custom_notes = st.text_area("Custom Affirmation / Footer Note", "Focus on what moves the needle today. Small consistent actions compound.")
         
     if st.button("🛠️ Build & Download Planner PDF", key="btn_planner"):
-        with st.spinner("AI structured planner layout construct kar raha hai..."):
+        with st.spinner("AI structured planner construct kar raha hai..."):
             try:
                 model = get_model(model_choice)
-                prompt = f"""
-                Create a high-impact daily schedule and goal framework for a planner titled '{p_title}' tailored for '{p_focus}'.
-                Provide:
-                1. Exactly 3 high-impact sample priority goals.
-                2. Exactly 6 chronological time slots (e.g. '08:00 AM - 10:00 AM', '10:00 AM - 12:00 PM', etc.) with recommended activities.
-                
-                OUTPUT FORMAT:
-                GOALS:
-                - Goal 1
-                - Goal 2
-                - Goal 3
-                
-                SCHEDULE:
-                08:00 AM - 10:00 AM | Deep Focus & High-Value Output
-                10:00 AM - 12:00 PM | Priority Execution & Communications
-                01:00 PM - 02:30 PM | Strategic Planning & Review
-                02:30 PM - 04:00 PM | Administrative & Task Batching
-                04:00 PM - 05:30 PM | Skill Development & Learning
-                07:00 PM - 08:00 PM | Daily Wrap-up & Tomorrow Preparation
-                """
-                res = model.generate_content(prompt)
-                text = res.text
-                
-                # Default fallbacks
-                goals = ["Complete key daily milestone", "Deep work session (2 hours uninterrupted)", "Health & workout routine"]
+                goals = ["Complete key daily priority task", "Deep work focus session (2 hours)", "Physical exercise & wellness routine"]
                 schedule = [
-                    ("08:00 - 10:00 AM", "Deep Work Session"),
+                    ("08:00 - 10:00 AM", "Deep Focus & High-Value Output"),
                     ("10:00 - 12:00 PM", "Core Project Execution"),
                     ("01:00 - 02:30 PM", "Meetings & Communications"),
                     ("02:30 - 04:30 PM", "Task Batching & Admin"),
                     ("05:00 - 06:30 PM", "Skill Growth & Exercise"),
-                    ("08:00 - 09:00 PM", "Daily Review & Planning")
+                    ("08:00 - 09:00 PM", "Daily Review & Next Day Planning")
                 ]
                 
                 planner_pdf = create_planner_pdf(p_title, p_user, goals, schedule, p_custom_notes)
@@ -460,7 +412,7 @@ with tab_canva:
         "YouTube Thumbnail (1280x720)",
         "Flyer / Poster (A4)"
     ])
-    c_theme = st.text_input("Design Theme / Purpose", "Modern Dark-Mode Tech Startup Announcement")
+    c_theme = st.text_input("Design Theme / Purpose", "Modern Dark-Mode Tech Announcement")
     c_brand_colors = st.text_input("Brand Color Preference (Optional)", "Deep Navy Blue, Electric Indigo, Neon Cyan, Pure White")
     
     if st.button("🚀 Generate Canva Design Blueprint", key="btn_canva"):
@@ -483,7 +435,6 @@ with tab_canva:
                 res = model.generate_content(prompt)
                 st.markdown(res.text)
                 
-                # Canva Direct Create Links
                 canva_url_map = {
                     "Instagram Post (1080x1080)": "https://www.canva.com/create/instagram-posts/",
                     "Instagram Reel / Story (1080x1920)": "https://www.canva.com/create/stories/",
@@ -550,11 +501,11 @@ with tab_pdf_reader:
             try:
                 reader = PdfReader(uploaded_pdf)
                 extracted_text = ""
-                for page in reader.pages[:10]: # Process first 10 pages
+                for page in reader.pages[:10]:
                     extracted_text += page.extract_text() or ""
                 
                 if not extracted_text.strip():
-                    st.warning("PDF me readable text nahi mil saka.")
+                    st.warning("PDF mein readable text nahi mil saka.")
                 else:
                     model = get_model(model_choice)
                     prompt = f"""
