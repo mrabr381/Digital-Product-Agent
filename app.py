@@ -259,7 +259,7 @@ with tab_research:
     st.subheader("🔍 Digital Product Trend & Market Research")
     st.caption("Search trends, competitor price points, and bestselling digital product ideas.")
     
-    col1, col2 = st.columns()
+    col1, col2 = st.columns(2)
     with col1:
         research_query = st.text_input("Enter Niche or Product Idea", placeholder="e.g. printable planners, Notion financial trackers, burnout guides")
     with col2:
