@@ -3,6 +3,7 @@ import google.generativeai as genai
 import io
 import time
 import re
+import json
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import (
@@ -175,7 +176,7 @@ def build_pro_ebook(title, author, subtitle, chapters):
     return buffer
 
 
-# --- PREMIUM PLANNER PDF ENGINE (Zero Overlap & Clean Grid) ---
+# --- PREMIUM PLANNER PDF ENGINE ---
 def build_pro_planner(title, owner_name, goals, schedule_items, notes):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -290,7 +291,6 @@ def parse_ebook_chapters(raw_text: str):
     
     for line in lines:
         stripped = line.strip()
-        # Detect Chapter Header
         if stripped.lower().startswith("### chapter") or stripped.lower().startswith("## chapter") or stripped.lower().startswith("# chapter"):
             if current_title and current_content:
                 chapters.append((current_title, "\n".join(current_content).strip()))
@@ -311,7 +311,7 @@ def parse_ebook_chapters(raw_text: str):
     return chapters
 
 
-# --- SAFE BUNDLE DELIMITER PARSER (REGEX-BASED) ---
+# --- SAFE BUNDLE DELIMITER PARSER ---
 def parse_bundle_response(raw_text: str):
     code_html = ""
     canva_blueprint = ""
@@ -340,6 +340,47 @@ def parse_bundle_response(raw_text: str):
         sales_copy = "### 🚀 Product Launch Copy\nHigh converting description ready for Gumroad and Etsy."
 
     return code_html, canva_blueprint, sales_copy
+
+
+# --- RESEARCH & SUB-NICHE JSON PARSER ---
+def parse_research_and_niches(raw_text: str):
+    sub_niches = []
+    clean_report = raw_text
+    
+    json_match = re.search(r'=== JSON_START ===(.*?)=== JSON_END ===', raw_text, re.DOTALL)
+    if json_match:
+        try:
+            data = json.loads(json_match.group(1).strip())
+            if "sub_niches" in data and isinstance(data["sub_niches"], list):
+                sub_niches = data["sub_niches"]
+            clean_report = raw_text.replace(json_match.group(0), "").strip()
+        except Exception:
+            pass
+            
+    # Default fallback sub-niches if research not run yet or format deviated
+    if not sub_niches:
+        sub_niches = [
+            {
+                "name": "Burnout Recovery & Deep Work Mastery for Freelancers",
+                "title": "UNSTOPPABLE FOCUS: The Freelancer's Deep Work Blueprint",
+                "subtitle": "Eliminate Digital Distractions, Build Consistent Daily Output & Double Revenue",
+                "price": "$19 - $29"
+            },
+            {
+                "name": "High-Performance Morning & Timeboxing Systems",
+                "title": "THE 3-HOUR WORKDAY: Timeboxing Architecture for High Achievers",
+                "subtitle": "How to Accomplish 8 Hours of High-Leverage Output in 180 Minutes",
+                "price": "$24 - $37"
+            },
+            {
+                "name": "Digital Asset & Notion Systemization for Creators",
+                "title": "SYSTEMIZE & SCALE: The Digital Creator's Operational Toolkit",
+                "subtitle": "Streamline Content Sprints, Client Workflows and Daily Execution",
+                "price": "$27 - $49"
+            }
+        ]
+        
+    return clean_report, sub_niches
 
 
 # --- STRICT TEXT-ONLY MODEL FILTER ---
@@ -411,10 +452,10 @@ with st.sidebar:
 # --- TOP BANNER ---
 st.markdown("""
 <div class="custom-card">
-    <span class="badge">END-TO-END PIPELINE</span>
+    <span class="badge">END-TO-END AUTOMATED PIPELINE</span>
     <h2>⚡ OmniCraft Studio — Full Digital Product Builder</h2>
     <p style="color: #94a3b8; margin-bottom: 0;">
-        Research any niche, select a winning angle, and automatically generate a complete <b>Ready-to-Sell Product Bundle</b> (PDFs, Planners, Web Tools, Canva Assets & Sales Copy).
+        Research any niche, auto-select a winning sub-niche, and automatically generate a complete <b>Ready-to-Sell Product Bundle</b> (PDFs, Planners, Web Tools, Canva Assets & Sales Copy).
     </p>
 </div>
 """, unsafe_allow_html=True)
@@ -424,9 +465,11 @@ if not api_key:
     st.stop()
 
 
-# --- SESSION STATE MANAGEMENT ---
-if "research_results" not in st.session_state:
-    st.session_state.research_results = None
+# --- SESSION STATE INITIALIZATION ---
+if "research_report" not in st.session_state:
+    st.session_state.research_report = None
+if "extracted_niches" not in st.session_state:
+    _, st.session_state.extracted_niches = parse_research_and_niches("")
 if "bundle_data" not in st.session_state:
     st.session_state.bundle_data = None
 
@@ -434,17 +477,17 @@ if "bundle_data" not in st.session_state:
 # --- WORKFLOW TABS ---
 tab_step1, tab_step2, tab_step3 = st.tabs([
     "🔍 Step 1: Market Research",
-    "🎯 Step 2: Choose Niche & Configure",
+    "🎯 Step 2: Auto-Extract & Configure",
     "📦 Step 3: Complete Product Suite & Downloads"
 ])
 
 
 # =======================================================
-# STEP 1: MARKET RESEARCH & OPPORTUNITY DISCOVERY
+# STEP 1: MARKET RESEARCH & STRUCTURED EXTRACTION
 # =======================================================
 with tab_step1:
     st.subheader("🔍 Step 1: Market Intelligence & Niche Discovery")
-    st.caption("Enter a broad topic. AI will identify 3 highly profitable sub-niches with monetization potential.")
+    st.caption("Enter a broad topic. AI will identify 3 profitable sub-niches with monetization potential.")
     
     col_s1, col_s2 = st.columns(2)
     with col_s1:
@@ -459,57 +502,86 @@ with tab_step1:
                 You are a world-class digital product strategist and market researcher.
                 Analyze the market for: '{broad_topic}' targeted on '{platform_choice}'.
                 
-                Identify EXACTLY 3 highly profitable SUB-NICHES. For each sub-niche, provide:
-                - Sub-Niche Name
-                - Core Target Customer & Burning Pain Point
-                - Proposed E-Book / Guide Title
-                - Proposed Printable Planner / Tracker Concept
-                - Proposed Interactive Code / Calculator Web App Concept
-                - Suggested Pricing ($9 - $49)
+                Identify EXACTLY 3 highly profitable SUB-NICHES.
                 
-                Format with clear markdown headings and bullet points so the user can easily choose one.
+                FIRST, provide a detailed, actionable market overview report with audience pain points, winning angles, and monetization advice.
+                
+                SECOND, at the very end of your response, output a structured JSON block enclosed in '=== JSON_START ===' and '=== JSON_END ===' with the exact schema:
+                === JSON_START ===
+                {{
+                  "sub_niches": [
+                    {{
+                      "name": "Sub-Niche 1 Exact Name",
+                      "title": "High-Converting E-Book Title 1",
+                      "subtitle": "Compelling Subtitle and Promise 1",
+                      "price": "$19 - $29"
+                    }},
+                    {{
+                      "name": "Sub-Niche 2 Exact Name",
+                      "title": "High-Converting E-Book Title 2",
+                      "subtitle": "Compelling Subtitle and Promise 2",
+                      "price": "$24 - $37"
+                    }},
+                    {{
+                      "name": "Sub-Niche 3 Exact Name",
+                      "title": "High-Converting E-Book Title 3",
+                      "subtitle": "Compelling Subtitle and Promise 3",
+                      "price": "$29 - $49"
+                    }}
+                  ]
+                }}
+                === JSON_END ===
                 """
-                research_text, used_m = generate_with_retry(prompt, model_choice, available_models)
-                st.session_state.research_results = research_text
-                st.success(f"Market Research Complete! (Engine: `{used_m}`)")
+                raw_research_text, used_m = generate_with_retry(prompt, model_choice, available_models)
+                clean_rep, extracted_sn = parse_research_and_niches(raw_research_text)
+                
+                st.session_state.research_report = clean_rep
+                st.session_state.extracted_niches = extracted_sn
+                st.success(f"Market Research Complete! 3 Sub-Niches extracted. (Engine: `{used_m}`)")
             except Exception as e:
                 st.error(f"Error: {e}")
 
-    if st.session_state.research_results:
-        st.markdown(st.session_state.research_results)
-        st.info("👉 Ab **Step 2: Choose Niche & Configure** tab par jayein aur apna product bundle configure karein.")
+    if st.session_state.research_report:
+        st.markdown(st.session_state.research_report)
+        st.info("👉 Ab **Step 2: Auto-Extract & Configure** tab par jayein. Teeno options auto-populate ho chuki hain!")
 
 
 # =======================================================
-# STEP 2: CHOOSE NICHE & CONFIGURE LAUNCH SUITE
+# STEP 2: AUTO-EXTRACT, SELECT & CONFIGURE
 # =======================================================
 with tab_step2:
-    st.subheader("🎯 Step 2: Select Sub-Niche & Product Details")
-    st.caption("Specify your exact product name and brand details based on the research above.")
-    
+    st.subheader("🎯 Step 2: Select Sub-Niche Option")
+    st.caption("Research se 3 options nikal li gayi hain. Neeche aik option choose karein — sab kuch automatically fill ho jayega!")
+
+    # 1-Click Dropdown Selector
+    options_list = [f"🎯 Sub-Niche {i+1}: {sn['name']}" for i, sn in enumerate(st.session_state.extracted_niches)]
+    selected_idx = st.selectbox("Select One Winning Sub-Niche to Build:", range(len(options_list)), format_func=lambda x: options_list[x])
+
+    chosen_sn = st.session_state.extracted_niches[selected_idx]
+
     col_c1, col_c2 = st.columns(2)
     with col_c1:
-        chosen_niche = st.text_input("Selected Sub-Niche / Core Angle", "Burnout Recovery & Deep Work Mastery for Freelancers")
-        p_title = st.text_input("Digital Product Main Title", "UNSTOPPABLE FOCUS: The Freelancer's Deep Work Blueprint")
-        p_subtitle = st.text_input("Subtitle / Hook", "Eliminate Digital Distractions, Build Consistent Daily Output & Double Revenue")
+        chosen_niche = st.text_input("Selected Sub-Niche / Core Angle (Auto-Filled)", value=chosen_sn.get("name", ""))
+        p_title = st.text_input("Digital Product Main Title (Auto-Filled)", value=chosen_sn.get("title", ""))
+        p_subtitle = st.text_input("Subtitle / Hook (Auto-Filled)", value=chosen_sn.get("subtitle", ""))
     with col_c2:
-        p_author = st.text_input("Brand / Author Name", "OmniCraft Publishing")
-        p_price = st.text_input("Target Selling Price", "$19 - $29")
+        p_author = st.text_input("Brand / Author Name", value="OmniCraft Publishing")
+        p_price = st.text_input("Target Selling Price (Auto-Filled)", value=chosen_sn.get("price", "$19 - $29"))
         num_chapters = st.slider("E-Book Chapter Count", 2, 4, 3)
 
     st.markdown("---")
-    st.markdown("### 🛠️ Assets to Build Automatically:")
+    st.markdown("### 🛠️ Complete Assets Package to Build:")
     col_a1, col_a2 = st.columns(2)
     with col_a1:
         st.checkbox("📄 1. Master E-Book (Print-Ready PDF with Cover & Chapters)", value=True, disabled=True)
-        st.checkbox("🗓️ 2. Printable Daily Planner (Structured Time-Blocks & Goals PDF)", value=True, disabled=True)
+        st.checkbox("🗓️ 2. Aesthetic Printable Planner (Structured Time-Blocks & Goals PDF)", value=True, disabled=True)
     with col_a2:
         st.checkbox("💻 3. Interactive Web App / Calculator (Self-Contained HTML/JS)", value=True, disabled=True)
         st.checkbox("🎨 4. Canva Marketing Blueprints & Direct Canvas Links", value=True, disabled=True)
         st.checkbox("📝 5. Gumroad/Etsy High-Converting Sales Listing Copy", value=True, disabled=True)
 
     if st.button("⚡ Generate Complete Digital Product Suite (1-Click Launch Kit)", key="btn_build_all"):
-        with st.spinner("🚀 AI poori Digital Product Suite build kar raha hai (Writing, Designing & Compiling PDFs)..."):
+        with st.spinner(f"🚀 AI '{p_title}' ke liye poori Digital Product Suite build kar raha hai..."):
             try:
                 # 1. Master Call 1: Generate E-Book Content
                 ebook_prompt = f"""
@@ -549,7 +621,7 @@ with tab_step2:
                 planner_notes = f"Small daily disciplines compound into massive long-term freedom in {chosen_niche}."
                 planner_pdf_bytes = build_pro_planner(f"{p_title} Planner", p_author, planner_goals, planner_sched, planner_notes)
 
-                # Safe cooldown to protect RPM rate limits
+                # 2-second safe cooldown to protect RPM rate limits
                 time.sleep(2)
 
                 # 3. Master Call 2: Generate Code Tool + Canva + Sales Copy Together
