@@ -83,8 +83,7 @@ class NumberedCanvas(canvas.Canvas):
 
     def draw_page_decorations(self, page_count):
         self.saveState()
-        page_w = float(letter[0])
-        page_h = float(letter)
+        page_w, page_h = letter  # Clean tuple unpacking: (612.0, 792.0)
         if self._pageNumber > 1: # Suppress header/footer on Cover Page
             self.setFont("Helvetica", 8)
             self.setFillColor(colors.HexColor("#64748b"))
@@ -357,7 +356,6 @@ def parse_research_and_niches(raw_text: str):
         except Exception:
             pass
             
-    # Default fallback sub-niches if research not run yet or format deviated
     if not sub_niches:
         sub_niches = [
             {
@@ -553,7 +551,6 @@ with tab_step2:
     st.subheader("🎯 Step 2: Select Sub-Niche Option")
     st.caption("Research se 3 options nikal li gayi hain. Neeche aik option choose karein — sab kuch automatically fill ho jayega!")
 
-    # 1-Click Dropdown Selector
     options_list = [f"🎯 Sub-Niche {i+1}: {sn['name']}" for i, sn in enumerate(st.session_state.extracted_niches)]
     selected_idx = st.selectbox("Select One Winning Sub-Niche to Build:", range(len(options_list)), format_func=lambda x: options_list[x])
 
